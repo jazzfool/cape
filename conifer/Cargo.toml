@@ -1,0 +1,21 @@
+[package]
+name = "conifer"
+version = "0.1.0"
+authors = ["jazzfool <saveuselon@gmail.com>"]
+edition = "2018"
+license = "MIT / Apache-2.0"
+description = "Sleek and modular toolkit for Cape"
+homepage = "http://github.com/jazzfool/cape/tree/master/conifer"
+repository = "http://github.com/jazzfool/cape"
+
+[features]
+default = ["kits"]
+kits = []
+
+[dependencies]
+enumflags2 = "^0.6"
+cape = { path = "../cape" }
+
+[[example]]
+name = "counter"
+required-features = ["cape/skulpin"]

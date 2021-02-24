@@ -1,0 +1,18 @@
+[package]
+name = "cape-macro"
+version = "0.1.0"
+authors = ["jazzfool <saveuselon@gmail.com>"]
+edition = "2018"
+license = "MIT / Apache-2.0"
+description = "Assisting procedural macros for Cape"
+homepage = "http://github.com/jazzfool/cape/tree/master/cape-macro"
+repository = "http://github.com/jazzfool/cape"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "1.0"
+darling = "0.10"
+quote = "1.0"
+proc-macro2 = "1.0"

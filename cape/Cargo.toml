@@ -1,0 +1,29 @@
+[package]
+name = "cape"
+version = "0.1.0"
+authors = ["jazzfool <saveuselon@gmail.com>"]
+edition = "2018"
+license = "MIT / Apache-2.0"
+description = "Core Cape library"
+homepage = "http://github.com/jazzfool/cape/tree/master/cape"
+repository = "http://github.com/jazzfool/cape"
+
+[features]
+skulpin_backend = ["skulpin"]
+
+[dependencies]
+euclid = "0.22"
+lazy_static = "1.4"
+palette = "0.5"
+image = "0.23"
+font-kit = "0.10"
+thiserror = "1.0"
+topo = "0.13"
+skulpin = { version = "0.11", default-features = false, features = [
+    "skulpin_winit",
+    "skia_complete",
+    "winit-23",
+], optional = true }
+winit = "0.23"
+skia-safe = { version = "0.36", features = ["shaper"] }
+cape-macro = { path = "../cape-macro" }
