@@ -1,46 +1,56 @@
-use crate::{container, LayoutBuilder};
-use cape::node::{interact, Interaction, Node, ToNode};
+use crate::*;
+use cape::{
+    node::{interact, Interaction, MouseButton, Node, ToNode, ZOrder},
+    ui::{self, NodeLayout},
+};
 
-pub struct ButtonBuilder {
-    child: Node,
-    padding: cape::Sides2,
-    on_click: Vec<Box<dyn Fn(&Interaction)>>,
-    disabled: bool,
+pub type Button<T> = ui::Interact<ContainerLayout<(T,)>>;
+
+pub struct ButtonProps<T: ui::Merge + ui::Expand> {
+    pub child: T,
+    pub padding: cape::Sides2,
+    pub on_click: Box<dyn Fn(&Interaction)>,
+    pub disabled: bool,
+    pub z_order: ZOrder,
 }
 
-impl Default for ButtonBuilder {
+impl<T: Default + ui::Merge + ui::Expand> Default for ButtonProps<T> {
     fn default() -> Self {
-        ButtonBuilder {
+        ButtonProps {
             child: Default::default(),
             padding: Default::default(),
-            on_click: Vec::new(),
+            on_click: Box::new(|_| {}),
             disabled: false,
+            z_order: Default::default(),
         }
     }
 }
 
-impl ToNode for ButtonBuilder {
+impl<T: Default + ui::Merge + ui::Expand> Props<Button<T>> for ButtonProps<T> {
     #[cape::ui]
-    fn to_node(self) -> Node {
+    fn build(self) -> Button<T> {
         let on_click = self.on_click;
 
-        interact(
-            container().child(self.child).margin(self.padding),
-            move |event| {
-                if event.is_mouse_down() {
-                    for e in &on_click {
-                        e(event);
-                    }
+        ui::Interact::new(
+            Container::default().children((self.child,)),
+            move |e| match e {
+                Interaction::MouseDown {
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    on_click(e);
                 }
+                _ => {}
             },
+            self.z_order,
             false,
         )
     }
 }
 
-impl ButtonBuilder {
-    pub fn child(mut self, child: impl ToNode) -> Self {
-        self.child = child.to_node();
+impl<T: ui::Merge + ui::Expand> ButtonProps<T> {
+    pub fn child(mut self, child: impl Into<T>) -> Self {
+        self.child = child.into();
         self
     }
 
@@ -50,7 +60,7 @@ impl ButtonBuilder {
     }
 
     pub fn on_click(mut self, f: impl Fn(&Interaction) + 'static) -> Self {
-        self.on_click.push(Box::new(f));
+        self.on_click = Box::new(f);
         self
     }
 
@@ -60,6 +70,6 @@ impl ButtonBuilder {
     }
 }
 
-pub fn button() -> ButtonBuilder {
-    ButtonBuilder::default()
+pub fn button<T: Default + ui::Merge + ui::Expand>(props: ButtonProps<T>) -> Button<T> {
+    props.build()
 }

@@ -15,6 +15,7 @@ kits = []
 [dependencies]
 enumflags2 = "^0.6"
 cape = { path = "../cape" }
+rayon = "1.5"
 
 [[example]]
 name = "counter"

@@ -369,6 +369,29 @@ impl<T: 'static> EventAccessor<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SignalAccessor {
+    count: u32,
+    state: StateAccessor<u32>,
+}
+
+impl SignalAccessor {
+    pub fn signal(&self) {
+        self.state.set(self.count);
+    }
+
+    pub fn get(&self) -> bool {
+        self.state.with(|x| {
+            if *x > 0 {
+                *x -= 1;
+                true
+            } else {
+                false
+            }
+        })
+    }
+}
+
 #[crate::ui]
 pub fn use_state<T: 'static>(init: impl FnOnce() -> T) -> StateAccessor<T> {
     let acc = StateAccessor {
@@ -514,4 +537,11 @@ pub fn use_event<T: 'static>() -> EventAccessor<T> {
     });
 
     acc
+}
+
+pub fn use_signal(count: u32) -> SignalAccessor {
+    SignalAccessor {
+        count,
+        state: use_state(|| 0),
+    }
 }

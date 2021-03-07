@@ -1,269 +1,181 @@
-use crate::{column, container, stack, LayoutBuilder, StackItem};
-use cape::node::{
-    iff, interact, rectangle, z_index, Interaction, MouseButton, Node, Paint, ToNode, ZIndex,
+use crate::*;
+use cape::{
+    node::{Interaction, MouseButton},
+    state::{use_state, Accessor, StateAccessor},
+    ui::{self, NodeLayout},
+    Sides2,
 };
-use cape::state::{on_render, use_cache, use_state, Accessor};
-use cape::{point2, rgb, size2, Sides2};
 use std::rc::Rc;
 
-pub struct ComboBoxBuilder {
-    style: ComboBoxStyle,
-    values: Vec<String>,
-    selected: usize,
-    on_change: Option<Rc<dyn Fn(String, usize)>>,
+pub type ComboBox<Centre, Popup, Item> = StackLayout<(
+    ui::Interact<StackLayout<(Centre, Item)>>,
+    Option<StackLayout<(Popup, ColumnLayout<(Vec<ui::Interact<Item>>,)>)>>,
+)>;
+
+pub struct ComboBoxProps<Centre, Popup, Item>
+where
+    Centre: 'static + ui::Merge + ui::Expand,
+    Popup: 'static + ui::Merge + ui::Expand,
+    Item: 'static + Clone + ui::Merge + ui::Expand,
+{
+    pub centre: Centre,
+    pub popup: Popup,
+    pub items: Vec<Item>,
+    pub index: usize,
+    pub on_change: Rc<dyn Fn(usize)>,
+    pub centre_padding: Sides2,
+    pub centre_item: StackItem,
 }
 
-impl Default for ComboBoxBuilder {
+impl<Centre, Popup, Item> Default for ComboBoxProps<Centre, Popup, Item>
+where
+    Centre: 'static + Default + ui::Merge + ui::Expand,
+    Popup: 'static + Default + ui::Merge + ui::Expand,
+    Item: 'static + Default + Clone + ui::Merge + ui::Expand,
+{
     fn default() -> Self {
-        ComboBoxBuilder {
-            style: ComboBoxStyle::default_dark(),
-            values: Vec::new(),
-            selected: 0,
-            on_change: None,
+        ComboBoxProps {
+            centre: Default::default(),
+            popup: Default::default(),
+            items: Default::default(),
+            index: 0,
+            on_change: Rc::new(|_| {}),
+            centre_padding: Default::default(),
+            centre_item: Default::default(),
         }
     }
 }
 
-impl ToNode for ComboBoxBuilder {
+impl<Centre, Popup, Item> Props<ComboBox<Centre, Popup, Item>>
+    for ComboBoxProps<Centre, Popup, Item>
+where
+    Centre: 'static + Default + ui::Merge + ui::Expand,
+    Popup: 'static + Default + ui::Merge + ui::Expand,
+    Item: 'static + Default + Clone + ui::Merge + ui::Expand,
+{
     #[cape::ui]
-    fn to_node(self) -> Node {
-        assert!(!self.values.is_empty(), "combo box cannot be empty");
-        assert!(
-            self.selected < self.values.len(),
-            "selected index must be valid"
-        );
+    fn build(self) -> ComboBox<Centre, Popup, Item> {
+        let opened = use_state(|| false);
 
-        fn item(
-            idx: usize,
-            value: String,
-            on_change: Option<Rc<dyn Fn(String, usize)>>,
-            style: &ComboBoxStyle,
-            opened: impl Accessor<bool>,
-            selected: usize,
-        ) -> impl ToNode {
-            interact(
-                stack()
-                    .height(style.height)
-                    .child_item(
-                        rectangle(
-                            size2(0., 0.),
-                            style.corner_radius,
-                            if idx == selected {
-                                style.item_selected.clone()
-                            } else {
-                                style.item_normal.clone()
-                            },
-                            0.,
-                            None,
-                        ),
-                        StackItem::fill(),
-                    )
-                    .child_item(
-                        value.clone(),
-                        StackItem {
-                            xy: point2(0., 0.5),
-                            xy_anchor: point2(0., 0.5),
-                            xy_offset: point2(style.margin.left, 0.),
-                            ..Default::default()
-                        },
+        let on_change = self.on_change;
+
+        Stack::default().children((
+            ui::Interact::new(
+                Stack {
+                    margin: self.centre_padding,
+                    ..Default::default()
+                }
+                .children((
+                    self.centre,
+                    (
+                        self.items
+                            .get(self.index)
+                            .cloned()
+                            .expect("invalid item index"),
+                        self.centre_item,
                     ),
-                move |event| {
+                )),
+                move |e| {
                     if let Interaction::MouseDown {
                         button: MouseButton::Left,
                         ..
-                    } = event
+                    } = e
                     {
-                        if let Some(on_change) = &on_change {
-                            opened.set(false);
-                            on_change(value.clone(), idx);
-                        }
+                        opened.set(!opened.get());
                     }
                 },
+                Default::default(),
                 false,
-            )
-        }
-
-        let opened = use_state(|| false);
-        let width = use_state(|| -1.0f32);
-        let values = use_cache(&self.values, |values| {
-            width.set(-1.);
-            values
-                .iter()
-                .map(|value| value.to_node())
-                .collect::<Vec<_>>()
-        });
-
-        on_render(move |resources| {
-            if width.get() < 0. {
-                values.with(|values| {
-                    width.set(values.iter().fold(0., |width, value| {
-                        width.max(value.text_layout(resources).unwrap().1.width)
-                    }));
-                });
-            }
-        });
-
-        stack()
-            .width(width.get() + self.style.margin.horizontal())
-            .height(self.style.height)
-            // The combo-box itself
-            .child_item(
-                interact(
-                    stack()
-                        .height(self.style.height)
-                        .child_item(
-                            rectangle(
-                                size2(0., 0.),
-                                self.style.corner_radius,
-                                self.style.background_normal.clone(),
-                                self.style.border_width,
-                                self.style.border_normal.clone(),
-                            ),
-                            StackItem::fill(),
-                        )
-                        .child_item(
-                            container()
-                                .margin(self.style.margin)
-                                .child(&self.values[self.selected]),
-                            StackItem::left_center(),
-                        ),
-                    move |event| match event {
-                        Interaction::MouseDown { .. } => opened.set(!opened.get()),
-                        Interaction::LoseFocus => opened.set(false),
-                        _ => {}
-                    },
-                    false,
-                ),
-                StackItem::fill(),
-            )
-            // The popup list
-            .child_item(
-                iff(opened.get(), || {
-                    z_index(
-                        stack()
-                            .child_item(
-                                rectangle(
-                                    size2(0., 0.),
-                                    self.style.corner_radius,
-                                    None,
-                                    self.style.popup_border_width,
-                                    self.style.popup_border.clone(),
-                                ),
-                                StackItem::fill(),
-                            )
-                            .child_item(
-                                column().children_items(
-                                    self.values
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(i, value)| {
-                                            (
-                                                item(
-                                                    i,
-                                                    value.clone(),
-                                                    self.on_change.clone(),
-                                                    &self.style,
-                                                    opened,
-                                                    self.selected,
-                                                ),
-                                                crate::ui::ColumnItem {
-                                                    align: crate::ui::Align::Fill,
-                                                    ..Default::default()
-                                                },
-                                            )
-                                        })
-                                        .collect(),
-                                ),
-                                StackItem::fill(),
-                            ),
-                        ZIndex(std::i32::MAX),
-                    )
-                }),
-                StackItem {
-                    xy_offset: point2(0., self.selected as f32 * -self.style.height),
-                    width: Some(1.),
-                    ..Default::default()
-                },
-            )
-            .to_node()
+            ),
+            if opened.get() {
+                Some(
+                    Stack::default().children((
+                        self.popup,
+                        Column::default().children((self
+                            .items
+                            .into_iter()
+                            .enumerate()
+                            .map(move |(i, item)| {
+                                let on_change = Rc::clone(&on_change);
+                                ui::Interact::new(
+                                    item,
+                                    move |e| {
+                                        if let Interaction::MouseDown {
+                                            button: MouseButton::Left,
+                                            ..
+                                        } = e
+                                        {
+                                            on_change(i);
+                                            opened.set(false);
+                                        }
+                                    },
+                                    Default::default(),
+                                    false,
+                                )
+                            })
+                            .collect::<Vec<_>>(),)),
+                    )),
+                )
+            } else {
+                None
+            },
+        ))
     }
 }
 
-impl ComboBoxBuilder {
-    pub fn style(mut self, style: ComboBoxStyle) -> Self {
-        self.style = style;
+impl<Centre, Popup, Item> ComboBoxProps<Centre, Popup, Item>
+where
+    Centre: 'static + ui::Merge + ui::Expand,
+    Popup: 'static + ui::Merge + ui::Expand,
+    Item: 'static + Clone + ui::Merge + ui::Expand,
+{
+    pub fn centre(mut self, centre: Centre) -> Self {
+        self.centre = centre;
         self
     }
 
-    pub fn values(mut self, values: &[String]) -> Self {
-        self.values = values.to_vec();
+    pub fn popup(mut self, popup: Popup) -> Self {
+        self.popup = popup;
         self
     }
 
-    pub fn selected(mut self, selected: usize) -> Self {
-        self.selected = selected;
+    pub fn items(mut self, items: Vec<Item>) -> Self {
+        self.items = items;
         self
     }
 
-    pub fn on_change(mut self, on_change: impl Fn(String, usize) + 'static) -> Self {
-        self.on_change = Some(Rc::new(on_change));
+    pub fn index(mut self, index: usize) -> Self {
+        self.index = index;
         self
     }
 
-    pub fn state(self, state: impl Accessor<usize>) -> Self {
-        self.selected(state.get())
-            .on_change(move |_, i| state.set(i))
+    pub fn on_change(mut self, on_change: impl Fn(usize) + 'static) -> Self {
+        self.on_change = Rc::new(on_change);
+        self
+    }
+
+    pub fn state(self, state: StateAccessor<usize>) -> Self {
+        self.index(state.get()).on_change(move |i| state.set(i))
+    }
+
+    pub fn centre_padding(mut self, centre_padding: Sides2) -> Self {
+        self.centre_padding = centre_padding;
+        self
+    }
+
+    pub fn centre_item(mut self, centre_item: StackItem) -> Self {
+        self.centre_item = centre_item;
+        self
     }
 }
 
-pub struct ComboBoxStyle {
-    pub border_width: f32,
-    pub corner_radius: [f32; 4],
-    pub margin: Sides2,
-    pub height: f32,
-
-    pub background_normal: Option<Paint>,
-    pub background_hover: Option<Paint>,
-    pub background_click: Option<Paint>,
-
-    pub border_normal: Option<Paint>,
-    pub border_hover: Option<Paint>,
-    pub border_click: Option<Paint>,
-
-    pub item_normal: Option<Paint>,
-    pub item_hover: Option<Paint>,
-    pub item_selected: Option<Paint>,
-
-    pub popup_border_width: f32,
-    pub popup_border: Option<Paint>,
-}
-
-impl ComboBoxStyle {
-    pub fn default_dark() -> Self {
-        ComboBoxStyle {
-            border_width: 0.,
-            corner_radius: [3.0; 4],
-            margin: Sides2::new(5., 10., 5., 10.),
-            height: 25.,
-
-            background_normal: Paint::Solid(rgb(26, 26, 26)).into(),
-            background_hover: Paint::Solid(rgb(30, 30, 30)).into(),
-            background_click: Paint::Solid(rgb(22, 22, 22)).into(),
-
-            border_normal: None,
-            border_hover: None,
-            border_click: None,
-
-            item_normal: Paint::Solid(rgb(26, 26, 26)).into(),
-            item_hover: Paint::Solid(rgb(30, 30, 30)).into(),
-            item_selected: Paint::Solid(rgb(25, 78, 197)).into(),
-
-            popup_border_width: 2.,
-            popup_border: Paint::Solid(rgb(70, 70, 70)).into(),
-        }
-    }
-}
-
-pub fn combo_box() -> ComboBoxBuilder {
-    ComboBoxBuilder::default()
+pub fn combo_box<Centre, Popup, Item>(
+    props: ComboBoxProps<Centre, Popup, Item>,
+) -> ComboBox<Centre, Popup, Item>
+where
+    Centre: 'static + Default + ui::Merge + ui::Expand,
+    Popup: 'static + Default + ui::Merge + ui::Expand,
+    Item: 'static + Default + Clone + ui::Merge + ui::Expand,
+{
+    props.build()
 }

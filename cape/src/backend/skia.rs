@@ -152,16 +152,14 @@ pub fn render_node(
         ResolvedNode::Text {
             fill,
             bottom_left,
-            blob,
+            blob: Some(blob),
             ..
         } => {
-            if let Some(blob) = blob {
-                canvas.draw_text_blob(
-                    blob,
-                    convert_point(*bottom_left),
-                    &convert_paint(fill, node.rect(), None)?,
-                );
-            }
+            canvas.draw_text_blob(
+                blob,
+                convert_point(*bottom_left),
+                &convert_paint(fill, node.rect(), None)?,
+            );
         }
         ResolvedNode::Rectangle {
             rect,
@@ -174,7 +172,7 @@ pub fn render_node(
             if let Some(bg) = background {
                 canvas.draw_rrect(
                     sk::RRect::new_rect_radii(
-                        rect.to_skia(),
+                        rect.round().inflate(0.25, 0.25).to_skia(),
                         &[
                             sk::Vector::new(corner_radii[0], corner_radii[0]),
                             sk::Vector::new(corner_radii[1], corner_radii[1]),

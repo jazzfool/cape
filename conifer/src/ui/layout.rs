@@ -1,19 +1,20 @@
-use cape::node::{Layout, Node, ToNode};
-use cape::{point2, size2, ui, Point2, Rect, Sides2, Size2};
-use std::rc::Rc;
+use cape::{node::Layout, point2, size2, ui, Point2, Rect, Sides2, Size2};
+use rayon::prelude::*;
+use std::{rc::Rc, sync::Mutex};
 
-struct RowLayout {
+struct RowNodeLayout {
     items: Vec<RowItem>,
     margin: Sides2,
     spacing: f32,
 }
 
-impl Layout for RowLayout {
+impl Layout for RowNodeLayout {
     fn size(&self, sizes: &[Size2]) -> Size2 {
         let mut total = size2(
             self.spacing * (sizes.len() - 1) as f32 + self.margin.horizontal(),
             0.,
         );
+
         for (i, &size) in sizes.iter().enumerate() {
             let item = &self.items[i];
             total.width += size.width + item.margin.horizontal();
@@ -22,16 +23,18 @@ impl Layout for RowLayout {
                 total.height = height;
             }
         }
+
         total
     }
 
     fn position(&self, rect: Rect, sizes: &[Size2]) -> Vec<Rect> {
-        let mut x = rect.origin.x + self.margin.left;
-        let mut out = Vec::new();
-        for (i, &size) in sizes.iter().enumerate() {
+        let x = Mutex::new(rect.origin.x + self.margin.left);
+        let out = Mutex::new(Vec::new());
+
+        sizes.par_iter().enumerate().for_each(|(i, &size)| {
             let mut size = size;
             let item = &self.items[i];
-            x += item.margin.left;
+            *x.lock().unwrap() += item.margin.left;
 
             let y = match item.align {
                 Align::Begin => rect.origin.y,
@@ -43,20 +46,23 @@ impl Layout for RowLayout {
                 }
             };
 
-            out.push(Rect::new(point2(x, y), size));
-            x += size.width + item.margin.right + self.spacing;
-        }
-        out
+            out.lock()
+                .unwrap()
+                .push(Rect::new(point2(*x.lock().unwrap(), y), size));
+            *x.lock().unwrap() += size.width + item.margin.right + self.spacing;
+        });
+
+        out.into_inner().unwrap()
     }
 }
 
-struct ColumnLayout {
+struct ColumnNodeLayout {
     items: Vec<ColumnItem>,
     margin: Sides2,
     spacing: f32,
 }
 
-impl Layout for ColumnLayout {
+impl Layout for ColumnNodeLayout {
     fn size(&self, sizes: &[Size2]) -> Size2 {
         let mut total = size2(
             0.,
@@ -98,14 +104,14 @@ impl Layout for ColumnLayout {
     }
 }
 
-struct StackLayout {
+struct StackNodeLayout {
     items: Vec<StackItem>,
     margin: Sides2,
     width: Option<f32>,
     height: Option<f32>,
 }
 
-impl Layout for StackLayout {
+impl Layout for StackNodeLayout {
     fn size(&self, sizes: &[Size2]) -> Size2 {
         let mut size: Size2 = size2(0., 0.);
 
@@ -161,11 +167,11 @@ impl Layout for StackLayout {
     }
 }
 
-struct ContainerLayout {
+struct ContainerNodeLayout {
     margin: Sides2,
 }
 
-impl Layout for ContainerLayout {
+impl Layout for ContainerNodeLayout {
     fn size(&self, sizes: &[Size2]) -> Size2 {
         let size = if !sizes.is_empty() {
             assert!(sizes.len() == 1);
@@ -203,6 +209,7 @@ impl Default for Align {
     }
 }
 
+/*
 pub trait LayoutBuilder: Sized {
     type Item: Default;
 
@@ -265,16 +272,18 @@ pub trait LayoutBuilder: Sized {
         self
     }
 }
+*/
 
-pub struct RowBuilder {
-    children: Vec<Node>,
-    items: Vec<RowItem>,
-
-    margin: Sides2,
-    spacing: f32,
+#[derive(Default)]
+pub struct Row {
+    pub margin: Sides2,
+    pub spacing: f32,
 }
 
-impl RowBuilder {
+pub type RowLayout<T> = ui::Layout<Row, T>;
+
+/*
+impl Row {
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
@@ -286,7 +295,7 @@ impl RowBuilder {
     }
 }
 
-impl LayoutBuilder for RowBuilder {
+impl LayoutBuilder for Row {
     type Item = RowItem;
 
     fn get_children(&mut self) -> &mut Vec<Node> {
@@ -298,7 +307,7 @@ impl LayoutBuilder for RowBuilder {
     }
 }
 
-impl ToNode for RowBuilder {
+impl ToNode for Row {
     #[ui]
     fn to_node(self) -> Node {
         Node::Layout {
@@ -307,9 +316,28 @@ impl ToNode for RowBuilder {
                 margin: self.margin,
                 spacing: self.spacing,
             }),
-            children: self.children,
-            z_index: Default::default(),
+            children: self
+                .children
+                .into_iter()
+                .map(cape::node::EitherNode::Unresolved)
+                .collect(),
+            z_order: Default::default(),
         }
+    }
+}
+*/
+
+impl ui::Merge for Row {}
+
+impl ui::NodeLayout for Row {
+    type Item = RowItem;
+
+    fn node_layout(&self, items: Vec<RowItem>) -> Rc<dyn Layout> {
+        Rc::new(RowNodeLayout {
+            items,
+            margin: self.margin,
+            spacing: self.spacing,
+        })
     }
 }
 
@@ -319,24 +347,18 @@ pub struct RowItem {
     pub margin: Sides2,
 }
 
-pub fn row() -> RowBuilder {
-    RowBuilder {
-        children: Vec::new(),
-        items: Vec::new(),
-        margin: Sides2::zero(),
-        spacing: 0.,
-    }
+impl ui::Merge for RowItem {}
+
+#[derive(Default)]
+pub struct Column {
+    pub margin: Sides2,
+    pub spacing: f32,
 }
 
-pub struct ColumnBuilder {
-    children: Vec<Node>,
-    items: Vec<ColumnItem>,
+pub type ColumnLayout<T> = ui::Layout<Column, T>;
 
-    margin: Sides2,
-    spacing: f32,
-}
-
-impl ColumnBuilder {
+/*
+impl Column {
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
@@ -348,7 +370,7 @@ impl ColumnBuilder {
     }
 }
 
-impl LayoutBuilder for ColumnBuilder {
+impl LayoutBuilder for Column {
     type Item = ColumnItem;
 
     fn get_children(&mut self) -> &mut Vec<Node> {
@@ -360,7 +382,7 @@ impl LayoutBuilder for ColumnBuilder {
     }
 }
 
-impl ToNode for ColumnBuilder {
+impl ToNode for Column {
     #[ui]
     fn to_node(self) -> Node {
         Node::Layout {
@@ -369,38 +391,65 @@ impl ToNode for ColumnBuilder {
                 margin: self.margin,
                 spacing: self.spacing,
             }),
-            children: self.children,
-            z_index: Default::default(),
+            children: self
+                .children
+                .into_iter()
+                .map(cape::node::EitherNode::Unresolved)
+                .collect(),
+            z_order: Default::default(),
         }
     }
 }
+*/
 
-#[derive(Default)]
+impl ui::Merge for Column {}
+
+impl ui::NodeLayout for Column {
+    type Item = ColumnItem;
+
+    fn node_layout(&self, items: Vec<ColumnItem>) -> Rc<dyn Layout> {
+        Rc::new(ColumnNodeLayout {
+            items,
+            margin: self.margin,
+            spacing: self.spacing,
+        })
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct ColumnItem {
     pub align: Align,
     pub margin: Sides2,
 }
 
-pub fn column() -> ColumnBuilder {
-    ColumnBuilder {
-        children: Vec::new(),
-        items: Vec::new(),
+impl cape::ui::Merge for ColumnItem {}
 
-        margin: Sides2::zero(),
-        spacing: 0.,
+#[derive(Default)]
+pub struct Stack {
+    pub margin: Sides2,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
+pub type StackLayout<T> = ui::Layout<Stack, T>;
+
+impl ui::Merge for Stack {}
+
+impl ui::NodeLayout for Stack {
+    type Item = StackItem;
+
+    fn node_layout(&self, items: Vec<Self::Item>) -> Rc<dyn Layout> {
+        Rc::new(StackNodeLayout {
+            items,
+            width: self.width,
+            height: self.height,
+            margin: self.margin,
+        })
     }
 }
 
-pub struct StackBuilder {
-    children: Vec<Node>,
-    items: Vec<StackItem>,
-
-    margin: Sides2,
-    width: Option<f32>,
-    height: Option<f32>,
-}
-
-impl StackBuilder {
+/*
+impl Stack {
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
@@ -417,7 +466,7 @@ impl StackBuilder {
     }
 }
 
-impl LayoutBuilder for StackBuilder {
+impl LayoutBuilder for Stack {
     type Item = StackItem;
 
     fn get_children(&mut self) -> &mut Vec<Node> {
@@ -429,7 +478,7 @@ impl LayoutBuilder for StackBuilder {
     }
 }
 
-impl ToNode for StackBuilder {
+impl ToNode for Stack {
     #[ui]
     fn to_node(self) -> Node {
         Node::Layout {
@@ -439,13 +488,18 @@ impl ToNode for StackBuilder {
                 width: self.width,
                 height: self.height,
             }),
-            children: self.children,
-            z_index: Default::default(),
+            children: self
+                .children
+                .into_iter()
+                .map(cape::node::EitherNode::Unresolved)
+                .collect(),
+            z_order: Default::default(),
         }
     }
 }
+*/
 
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StackItem {
     pub xy: Point2,
     pub xy_offset: Point2,
@@ -454,6 +508,14 @@ pub struct StackItem {
     pub height: Option<f32>,
     pub wh_offset: Option<Size2>,
 }
+
+impl Default for StackItem {
+    fn default() -> Self {
+        StackItem::fill()
+    }
+}
+
+impl ui::Merge for StackItem {}
 
 impl StackItem {
     pub fn center() -> Self {
@@ -528,37 +590,42 @@ impl StackItem {
         StackItem {
             width: Some(1.),
             height: Some(1.),
-            ..Default::default()
+            xy: Default::default(),
+            xy_offset: Default::default(),
+            xy_anchor: Default::default(),
+            wh_offset: Default::default(),
         }
     }
 }
 
-pub fn stack() -> StackBuilder {
-    StackBuilder {
-        children: Vec::new(),
-        items: Vec::new(),
+#[derive(Default)]
+pub struct Container {
+    pub margin: Sides2,
+}
 
-        margin: Sides2::zero(),
-        width: None,
-        height: None,
+pub type ContainerLayout<T> = ui::Layout<Container, T>;
+
+impl ui::Merge for Container {}
+
+impl ui::NodeLayout for Container {
+    type Item = ();
+
+    fn node_layout(&self, items: Vec<()>) -> Rc<dyn Layout> {
+        Rc::new(ContainerNodeLayout {
+            margin: self.margin,
+        })
     }
 }
 
-pub struct ContainerBuilder {
-    children: Vec<Node>,
-    items: Vec<()>,
-
-    margin: Sides2,
-}
-
-impl ContainerBuilder {
+/*
+impl Container {
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
     }
 }
 
-impl LayoutBuilder for ContainerBuilder {
+impl LayoutBuilder for Container {
     type Item = ();
 
     fn max_children() -> usize {
@@ -574,24 +641,20 @@ impl LayoutBuilder for ContainerBuilder {
     }
 }
 
-impl ToNode for ContainerBuilder {
+impl ToNode for Container {
     #[ui]
     fn to_node(self) -> Node {
         Node::Layout {
             layout: Rc::new(ContainerLayout {
                 margin: self.margin,
             }),
-            children: self.children,
-            z_index: Default::default(),
+            children: self
+                .children
+                .into_iter()
+                .map(cape::node::EitherNode::Unresolved)
+                .collect(),
+            z_order: Default::default(),
         }
     }
 }
-
-pub fn container() -> ContainerBuilder {
-    ContainerBuilder {
-        children: Vec::new(),
-        items: Vec::new(),
-
-        margin: Sides2::zero(),
-    }
-}
+*/

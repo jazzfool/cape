@@ -4,10 +4,13 @@ pub mod backend;
 pub mod id;
 pub mod node;
 pub mod state;
+pub mod ui;
 
 pub use cape_macro::{ui, unique_ui};
 pub use euclid::{point2, rect, size2};
+pub use font_kit;
 pub use image::RgbaImage as Image;
+pub use palette;
 pub use palette::rgb::LinSrgba as Color;
 pub use skia_safe as skia;
 pub use topo::{self, CallId};
@@ -17,10 +20,6 @@ pub type Point3 = euclid::Point3D<f32, euclid::UnknownUnit>;
 pub type Size2 = euclid::Size2D<f32, euclid::UnknownUnit>;
 pub type Sides2 = euclid::SideOffsets2D<f32, euclid::UnknownUnit>;
 pub type Rect = euclid::Rect<f32, euclid::UnknownUnit>;
-
-lazy_static::lazy_static! {
-    pub static ref DEFAULT_DARK_BACKGROUND: Color = rgb(38, 38, 38);
-}
 
 pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
     Color::new(
@@ -33,6 +32,22 @@ pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
 
 pub fn rgb(r: u8, g: u8, b: u8) -> Color {
     rgba(r, g, b, 255)
+}
+
+pub const fn frgba(red: f32, green: f32, blue: f32, alpha: f32) -> Color {
+    Color {
+        color: palette::rgb::Rgb {
+            standard: std::marker::PhantomData,
+            red,
+            green,
+            blue,
+        },
+        alpha,
+    }
+}
+
+pub const fn frgb(red: f32, green: f32, blue: f32) -> Color {
+    frgba(red, green, blue, 1.)
 }
 
 #[track_caller]
@@ -65,6 +80,8 @@ pub enum Error {
     SkiaFont,
     #[error("invalid child placed in an interact/capture node")]
     EmptyNode,
+    #[error("error within sync structure")]
+    Sync,
 }
 
 pub trait ToSkia<T> {

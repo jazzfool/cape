@@ -38,7 +38,6 @@ pub fn unique_ui(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let key = args.key.unwrap_or_else(|| String::from("key"));
     let key = quote::format_ident!("{}", key);
-    //let key = format!("{}", key);
 
     let inner_block = input.block;
     input.block = syn::parse_quote! {{ cape::call_unique(#key, move || #inner_block) }};

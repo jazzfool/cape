@@ -1,135 +1,119 @@
 use crate::{
     deco::{self, Decorated},
-    ui,
+    FnProps, Props,
 };
-use cape::node::{draw, Node, ToNode};
-use cape::state::{use_static, Accessor};
-use cape::ToSkia;
+use cape::{
+    frgb,
+    node::{draw, Node, Paint},
+    point2, rgb,
+    ui::{self, NodeLayout},
+    ToSkia,
+};
 
-struct Shadow {}
+pub const BACKGROUND_COLOR: cape::Color = frgb(22. / 255., 22. / 255., 22. / 255.);
 
-impl deco::Decorator for Shadow {
-    fn order(&self) -> deco::Order {
-        deco::Order::Back
+pub fn set_palette(pal: &mut super::Palette) {
+    pal.insert(String::from("button-border"), Paint::Solid(rgb(90, 90, 90)));
+    pal.insert(String::from("button-normal"), Paint::Solid(rgb(39, 39, 39)));
+    pal.insert(
+        String::from("button-hovered"),
+        Paint::Solid(rgb(45, 45, 45)),
+    );
+    pal.insert(
+        String::from("combo-box-background"),
+        Paint::Solid(rgb(39, 39, 39)),
+    );
+    pal.insert(
+        String::from("combo-box-border"),
+        Paint::Solid(rgb(90, 90, 90)),
+    );
+    pal.insert(
+        String::from("combo-box-popup-background"),
+        Paint::Solid(rgb(10, 10, 10)),
+    );
+    pal.insert(
+        String::from("combo-box-popup-border"),
+        Paint::Solid(rgb(90, 90, 90)),
+    );
+}
+
+pub type Background = ui::Rectangle;
+
+pub fn background(paint: super::Paint, radii: [f32; 4]) -> Background {
+    Background {
+        background: paint.resolve(),
+        border: 0.,
+        border_fill: None,
+        corner_radius: radii,
+        size: Default::default(),
+        z_order: Default::default(),
     }
+}
 
-    fn layout(&self) -> crate::StackItem {
-        crate::StackItem::fill()
+pub type Border = ui::Rectangle;
+
+pub fn border(paint: super::Paint, radii: [f32; 4], width: f32) -> Border {
+    ui::Rectangle {
+        background: None,
+        border: width,
+        border_fill: paint.resolve(),
+        corner_radius: radii,
+        size: Default::default(),
+        z_order: Default::default(),
     }
+}
 
-    fn node(self) -> Node {
-        draw(cape::Size2::new(0., 0.), |mut rect, canvas| {
-            //rect /= 2.0;
-            //rect /= 1.5;
+pub type Button<T> = Decorated<(Background, Border), crate::Button<T>, ()>;
 
-            let mut path = cape::skia::Path::new();
-
-            path.add_rrect(
-                cape::skia::RRect::new_rect_radii(
-                    rect.to_skia(),
-                    &[cape::skia::Point::new(5., 5.); 4],
+#[cape::ui]
+pub fn button<T: Default + ui::Merge + ui::Expand>(props: crate::ButtonProps<T>) -> Button<T> {
+    deco::decorated(deco::DecoratedProps {
+        below: |state| {
+            (
+                background(
+                    super::Paint::Palette(String::from(if state.hovered {
+                        "button-hovered"
+                    } else {
+                        "button-normal"
+                    })),
+                    [5.; 4],
                 ),
-                None,
-            );
+                border(
+                    super::Paint::Palette(String::from("button-border")),
+                    [5.; 4],
+                    1.,
+                ),
+            )
+        },
+        child: props.padding(cape::Sides2::new(5., 15., 5., 15.)).build(),
+        above: |_| {},
+        margin: Default::default(),
+        z_order: Default::default(),
+    })
+}
 
-            let shadow_x = (rect.min_x() + rect.max_x()) / 2.;
-            let shadow_y = rect.min_y() - 600.;
+pub type ComboBox<Item> = crate::ComboBox<ui::Rectangle, ui::Rectangle, Item>;
 
-            canvas.draw_shadow(
-                &path,
-                cape::Point3::new(0., 0., 7.).to_skia(),
-                cape::Point3::new(shadow_x, shadow_y, 600.).to_skia(),
-                800.,
-                cape::Color::new(1., 1., 1., 0.2).to_skia(),
-                cape::Color::new(0., 0., 0., 0.5).to_skia(),
-                None,
-            );
+#[cape::ui]
+pub fn combo_box<Item: Default + Clone + ui::Merge + ui::Expand>(
+    props: crate::ComboBoxProps<ui::Rectangle, ui::Rectangle, Item>,
+) -> ComboBox<Item> {
+    props
+        .centre_padding(cape::Sides2::new(5., 15., 5., 15.))
+        .centre_item(crate::StackItem::center())
+        .centre(ui::Rectangle {
+            background: super::Paint::Palette(String::from("combo-box-background")).resolve(),
+            border_fill: super::Paint::Palette(String::from("combo-box-border")).resolve(),
+            border: 1.,
+            corner_radius: [5.; 4],
+            ..Default::default()
         })
-    }
-}
-
-pub fn shadow() -> impl deco::Decorator {
-    Shadow {}
-}
-
-struct Background {
-    paint: super::Paint,
-    radii: [f32; 4],
-}
-
-impl deco::Decorator for Background {
-    fn order(&self) -> deco::Order {
-        deco::Order::Back
-    }
-
-    fn layout(&self) -> crate::StackItem {
-        crate::StackItem::fill()
-    }
-
-    fn node(self) -> Node {
-        cape::node::rectangle(
-            Default::default(),
-            self.radii,
-            self.paint
-                .resolve()
-                .expect("failed to resolve paint from palette"),
-            0.,
-            None,
-        )
-    }
-}
-
-pub fn background(paint: super::Paint, radii: [f32; 4]) -> impl deco::Decorator {
-    Background { paint, radii }
-}
-
-struct Border {
-    paint: super::Paint,
-    radii: [f32; 4],
-    width: f32,
-}
-
-impl deco::Decorator for Border {
-    fn order(&self) -> deco::Order {
-        deco::Order::Back
-    }
-
-    fn layout(&self) -> crate::StackItem {
-        crate::StackItem::fill()
-    }
-
-    fn node(self) -> Node {
-        cape::node::rectangle(
-            cape::Size2::default(),
-            self.radii,
-            None,
-            self.width,
-            self.paint
-                .resolve()
-                .expect("failed to resolve paint from palette"),
-        )
-    }
-}
-
-pub fn border(paint: super::Paint, radii: [f32; 4], width: f32) -> impl deco::Decorator {
-    Border {
-        paint,
-        radii,
-        width,
-    }
-}
-
-pub fn button(node: crate::ButtonBuilder) -> deco::DecoratedNode {
-    node.padding(cape::Sides2::new(5., 15., 5., 15.))
-        .decorate()
-        .decorator(border(
-            super::Paint::Palette(String::from("button-border")),
-            [5.; 4],
-            1.,
-        ))
-        .decorator(background(
-            super::Paint::Palette(String::from("button-normal")),
-            [5.; 4],
-        ))
-        .decorator(shadow())
+        .popup(ui::Rectangle {
+            background: super::Paint::Palette(String::from("combo-box-popup-background")).resolve(),
+            border_fill: super::Paint::Palette(String::from("combo-box-popup-border")).resolve(),
+            border: 1.,
+            corner_radius: [5.; 4],
+            ..Default::default()
+        })
+        .build()
 }

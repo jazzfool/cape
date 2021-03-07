@@ -1,68 +1,70 @@
-use crate::{column, container, row, stack, LayoutBuilder, StackItem};
-use cape::node::{interact, rectangle, styled_text, Interaction, KeyCode, Node, Paint, ToNode};
-use cape::state::{use_state, Accessor};
-use cape::{rgb, size2, ui, Sides2};
+use crate::StackItem;
+use cape::{
+    node::{interact, rectangle, styled_text, Interaction, KeyCode, Node, Paint, ToNode},
+    rgba, size2,
+    state::{use_state, Accessor},
+    ui, Sides2,
+};
 
-pub struct TextBoxBuilder {
-    style: TextBoxStyle,
-    value: String,
-    icon: Node,
-    disabled: bool,
-    on_change: Option<Box<dyn Fn(String)>>,
+pub struct TextBox {
+    pub selection_paint: Paint,
+    pub selection_corner_radii: [f32; 4],
+    pub font: String,
+    pub font_size: Option<f32>,
+    pub font_fill: Option<Paint>,
+    pub padding: Sides2,
+    pub width: f32,
+    pub value: String,
+    pub disabled: bool,
+    pub on_change: Option<Box<dyn Fn(String)>>,
 }
 
-impl Default for TextBoxBuilder {
+impl Default for TextBox {
     fn default() -> Self {
-        TextBoxBuilder {
-            style: TextBoxStyle::default_dark(),
+        TextBox {
+            selection_paint: Paint::Solid(rgba(0, 0, 255, 150)),
+            selection_corner_radii: [5.0; 4],
+            font: String::from("sans-serif"),
+            font_size: None,
+            font_fill: None,
+            padding: Sides2::default(),
+            width: 150.,
             value: String::new(),
-            icon: Node::Null,
             disabled: false,
             on_change: None,
         }
     }
 }
 
-impl ToNode for TextBoxBuilder {
+impl ToNode for TextBox {
     #[ui]
     fn to_node(self) -> Node {
+        let on_change = self.on_change;
+        let value = self.value;
+
         interact(
-            stack()
-                .height(self.style.height)
-                .child_item(
-                    rectangle(
-                        size2(0., 0.),
-                        self.style.corner_radius,
-                        self.style.background_normal.clone(),
-                        self.style.border_width,
-                        self.style.border_normal.clone(),
-                    ),
-                    StackItem::fill(),
-                )
-                .child_item(
-                    container()
-                        .child(row().child(self.icon.clone()).child(styled_text(
-                            &self.value,
-                            "sans-serif",
-                            None,
-                            Some(self.style.text.clone()),
-                        )))
-                        .margin(self.style.margin),
-                    StackItem::center(),
-                ),
+            stack().width(self.width).child_item(
+                container().margin(self.padding).child(styled_text(
+                    &value,
+                    self.font,
+                    self.font_size,
+                    self.font_fill,
+                )),
+                StackItem::fill(),
+            ),
             move |event| match event {
                 Interaction::ReceiveCharacter { character } => {
                     if !character.is_control() && !character.is_ascii_control() {
-                        if let Some(on_change) = &self.on_change {
-                            on_change(format!("{}{}", self.value.clone(), character));
+                        if let Some(on_change) = &on_change {
+                            on_change(format!("{}{}", value.clone(), character));
                         }
                     }
                 }
                 Interaction::KeyDown { key_code, .. } => match key_code {
                     KeyCode::Back => {
-                        if !self.value.is_empty() {
-                            if let Some(on_change) = &self.on_change {
-                                on_change(self.value[0..self.value.len() - 1].to_string());
+                        if !value.is_empty() {
+                            if let Some(on_change) = &on_change {
+                                on_change(value[0..value.len() - 1].to_string());
                             }
                         }
                     }
@@ -77,19 +79,44 @@ impl ToNode for TextBoxBuilder {
     }
 }
 
-impl TextBoxBuilder {
-    pub fn style(mut self, style: TextBoxStyle) -> Self {
-        self.style = style;
+impl TextBox {
+    pub fn selection_paint(mut self, paint: impl Into<Paint>) -> Self {
+        self.selection_paint = paint.into();
+        self
+    }
+
+    pub fn selection_corner_radii(mut self, radii: [f32; 4]) -> Self {
+        self.selection_corner_radii = radii;
+        self
+    }
+
+    pub fn font(mut self, font: impl ToString) -> Self {
+        self.font = font.to_string();
+        self
+    }
+
+    pub fn font_size(mut self, size: impl Into<Option<f32>>) -> Self {
+        self.font_size = size.into();
+        self
+    }
+
+    pub fn font_fill(mut self, fill: impl Into<Option<Paint>>) -> Self {
+        self.font_fill = fill.into();
+        self
+    }
+
+    pub fn padding(mut self, padding: Sides2) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
         self
     }
 
     pub fn value(mut self, value: impl Into<String>) -> Self {
         self.value = value.into();
-        self
-    }
-
-    pub fn icon(mut self, icon: impl ToNode) -> Self {
-        self.icon = icon.to_node();
         self
     }
 
@@ -108,80 +135,36 @@ impl TextBoxBuilder {
     }
 }
 
-pub struct TextBoxStyle {
-    pub border_width: f32,
-    pub corner_radius: [f32; 4],
-    pub margin: Sides2,
-    pub height: f32,
-    pub text: Paint,
-
-    pub background_normal: Option<Paint>,
-    pub background_hover: Option<Paint>,
-    pub background_focus: Option<Paint>,
-
-    pub border_normal: Option<Paint>,
-    pub border_hover: Option<Paint>,
-    pub border_focus: Option<Paint>,
+pub fn text_box() -> TextBox {
+    TextBox::default()
 }
 
-impl TextBoxStyle {
-    pub fn default_dark() -> Self {
-        TextBoxStyle {
-            border_width: 0.,
-            corner_radius: [5.; 4],
-            margin: Sides2::new(5., 10., 5., 10.),
-            height: 30.,
-            text: Paint::Solid(rgb(230, 230, 230)),
-
-            background_normal: Paint::Solid(rgb(26, 26, 26)).into(),
-            background_hover: Paint::Solid(rgb(30, 30, 30)).into(),
-            background_focus: Paint::Solid(rgb(22, 22, 22)).into(),
-
-            border_normal: None,
-            border_hover: None,
-            border_focus: None,
-        }
-    }
-
-    pub fn default_dark_invalid() -> Self {
-        TextBoxStyle {
-            border_width: 2.,
-
-            border_normal: Paint::Solid(rgb(255, 50, 50)).into(),
-            border_hover: Paint::Solid(rgb(255, 50, 50)).into(),
-            border_focus: Paint::Solid(rgb(255, 50, 50)).into(),
-
-            ..Self::default_dark()
-        }
-    }
-
-    pub fn default_dark_disabled() -> Self {
-        TextBoxStyle {
-            text: Paint::Solid(rgb(100, 100, 100)),
-
-            ..Self::default_dark()
-        }
-    }
+pub struct FloatBox {
+    pub selection_paint: Paint,
+    pub selection_corner_radii: [f32; 4],
+    pub font: String,
+    pub font_size: Option<f32>,
+    pub font_fill: Option<Paint>,
+    pub padding: Sides2,
+    pub width: f32,
+    pub value: f64,
+    pub valid: bool,
+    pub disabled: bool,
+    pub min: f64,
+    pub max: f64,
+    pub on_change: Option<Box<dyn Fn(f64)>>,
 }
 
-pub fn text_box() -> TextBoxBuilder {
-    TextBoxBuilder::default()
-}
-
-pub struct FloatBoxBuilder {
-    style: TextBoxStyle,
-    value: f64,
-    valid: bool,
-    disabled: bool,
-    min: f64,
-    max: f64,
-    on_change: Option<Box<dyn Fn(f64)>>,
-}
-
-impl Default for FloatBoxBuilder {
+impl Default for FloatBox {
     fn default() -> Self {
-        FloatBoxBuilder {
-            style: TextBoxStyle::default_dark(),
+        FloatBox {
+            selection_paint: Paint::Solid(rgba(0, 0, 255, 150)),
+            selection_corner_radii: [5.0; 4],
+            font: String::from("sans-serif"),
+            font_size: None,
+            font_fill: None,
+            padding: Sides2::default(),
+            width: 150.,
             value: 0.,
             valid: true,
             disabled: false,
@@ -192,7 +175,7 @@ impl Default for FloatBoxBuilder {
     }
 }
 
-impl ToNode for FloatBoxBuilder {
+impl ToNode for FloatBox {
     #[ui]
     fn to_node(mut self) -> Node {
         let on_change = self.on_change.take();
@@ -220,7 +203,12 @@ impl ToNode for FloatBoxBuilder {
         column()
             .child(
                 text_box()
-                    .style(self.style)
+                    .selection_paint(self.selection_paint)
+                    .selection_corner_radii(self.selection_corner_radii)
+                    .font(self.font)
+                    .font_size(self.font_size)
+                    .font_fill(self.font_fill)
+                    .padding(self.padding)
                     .value(text.get())
                     .on_change(move |val| {
                         if val.contains(|c: char| c != '.' && !c.is_numeric())
@@ -244,9 +232,39 @@ impl ToNode for FloatBoxBuilder {
     }
 }
 
-impl FloatBoxBuilder {
-    pub fn style(mut self, style: TextBoxStyle) -> Self {
-        self.style = style;
+impl FloatBox {
+    pub fn selection_paint(mut self, paint: impl Into<Paint>) -> Self {
+        self.selection_paint = paint.into();
+        self
+    }
+
+    pub fn selection_corner_radii(mut self, radii: [f32; 4]) -> Self {
+        self.selection_corner_radii = radii;
+        self
+    }
+
+    pub fn font(mut self, font: impl ToString) -> Self {
+        self.font = font.to_string();
+        self
+    }
+
+    pub fn font_size(mut self, size: impl Into<Option<f32>>) -> Self {
+        self.font_size = size.into();
+        self
+    }
+
+    pub fn font_fill(mut self, fill: impl Into<Option<Paint>>) -> Self {
+        self.font_fill = fill.into();
+        self
+    }
+
+    pub fn padding(mut self, padding: Sides2) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
         self
     }
 
@@ -285,6 +303,6 @@ impl FloatBoxBuilder {
     }
 }
 
-pub fn float_box() -> FloatBoxBuilder {
-    FloatBoxBuilder::default()
+pub fn float_box() -> FloatBox {
+    FloatBox::default()
 }
