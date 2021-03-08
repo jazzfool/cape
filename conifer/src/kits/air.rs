@@ -2,9 +2,14 @@ use crate::{
     deco::{self, Decorated},
     ui,
 };
-use cape::node::{draw, Node, ToNode};
-use cape::state::{use_static, Accessor};
-use cape::ToSkia;
+use cape::{
+    frgb,
+    node::{draw, IntoNode, Node},
+    state::{use_static, Accessor},
+    ToSkia,
+};
+
+pub const BACKGROUND_COLOR: cape::Color = frgb(22. / 255., 22. / 255., 22. / 255.);
 
 struct Shadow {}
 
@@ -119,17 +124,19 @@ pub fn border(paint: super::Paint, radii: [f32; 4], width: f32) -> impl deco::De
     }
 }
 
-pub fn button(node: crate::ButtonBuilder) -> deco::DecoratedNode {
-    node.padding(cape::Sides2::new(5., 15., 5., 15.))
-        .decorate()
-        .decorator(border(
-            super::Paint::Palette(String::from("button-border")),
-            [5.; 4],
-            1.,
-        ))
-        .decorator(background(
-            super::Paint::Palette(String::from("button-normal")),
-            [5.; 4],
-        ))
-        .decorator(shadow())
+pub fn button(node: crate::Button) -> crate::Button {
+    node.padding(cape::Sides2::new(5., 15., 5., 15.)).decorator(
+        |_state: &_, node: deco::DecoratedNode| {
+            node.decorator(border(
+                super::Paint::Palette(String::from("button-border")),
+                [5.; 4],
+                1.,
+            ))
+            .decorator(background(
+                super::Paint::Palette(String::from("button-normal")),
+                [5.; 4],
+            ))
+            .decorator(shadow())
+        },
+    )
 }

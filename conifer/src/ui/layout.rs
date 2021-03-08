@@ -1,4 +1,4 @@
-use cape::node::{Layout, Node, ToNode};
+use cape::node::{IntoNode, Layout, Node};
 use cape::{point2, size2, ui, Point2, Rect, Sides2, Size2};
 use std::rc::Rc;
 
@@ -16,22 +16,47 @@ impl Layout for RowLayout {
         );
         for (i, &size) in sizes.iter().enumerate() {
             let item = &self.items[i];
-            total.width += size.width + item.margin.horizontal();
-            let height = size.height + item.margin.vertical();
-            if height > total.height {
-                total.height = height;
+            if !item.fill {
+                total.width += size.width + item.margin.horizontal();
+                let height = size.height + item.margin.vertical();
+                if height > total.height {
+                    total.height = height;
+                }
             }
         }
+        total.height += self.margin.vertical();
         total
     }
 
     fn position(&self, rect: Rect, sizes: &[Size2]) -> Vec<Rect> {
-        let mut x = rect.origin.x + self.margin.left;
+        let rect = rect.inner_rect(self.margin);
+
+        let mut x = rect.origin.x;
         let mut out = Vec::new();
+
+        let mut filled = self.spacing * (sizes.len() - 1) as f32;
+        let mut num_filled = 0;
+
         for (i, &size) in sizes.iter().enumerate() {
-            let mut size = size;
             let item = &self.items[i];
+            if !item.fill {
+                filled += size.width + item.margin.horizontal();
+            } else {
+                num_filled += 1;
+            }
+        }
+
+        let fill_dist = (rect.size.width - filled) / num_filled as f32;
+
+        for (i, &size) in sizes.iter().enumerate() {
+            let item = &self.items[i];
+            let mut size = size;
+
             x += item.margin.left;
+
+            if item.fill {
+                size.width = fill_dist;
+            }
 
             let y = match item.align {
                 Align::Begin => rect.origin.y,
@@ -46,6 +71,7 @@ impl Layout for RowLayout {
             out.push(Rect::new(point2(x, y), size));
             x += size.width + item.margin.right + self.spacing;
         }
+
         out
     }
 }
@@ -70,16 +96,39 @@ impl Layout for ColumnLayout {
                 total.width = width;
             }
         }
+        total.width += self.margin.horizontal();
         total
     }
 
     fn position(&self, rect: Rect, sizes: &[Size2]) -> Vec<Rect> {
+        let rect = rect.inner_rect(self.margin);
+
         let mut y = rect.origin.y + self.margin.top;
         let mut out = Vec::new();
+
+        let mut filled = self.spacing * (sizes.len() - 1) as f32;
+        let mut num_filled = 0;
+
         for (i, &size) in sizes.iter().enumerate() {
-            let mut size = size;
             let item = &self.items[i];
+            if !item.fill {
+                filled += size.height + item.margin.vertical();
+            } else {
+                num_filled += 1;
+            }
+        }
+
+        let fill_dist = (rect.size.height - filled) / num_filled as f32;
+
+        for (i, &size) in sizes.iter().enumerate() {
+            let item = &self.items[i];
+            let mut size = size;
+
             y += item.margin.top;
+
+            if item.fill {
+                size.height = fill_dist;
+            }
 
             let x = match item.align {
                 Align::Begin => rect.origin.x,
@@ -129,15 +178,19 @@ impl Layout for StackLayout {
     }
 
     fn position(&self, rect: Rect, sizes: &[Size2]) -> Vec<Rect> {
+        let rect = rect.inner_rect(self.margin);
+
         let mut out = Vec::new();
 
-        for i in 0..sizes.len() {
-            let mut size = size2(0., 0.);
+        for (i, &size) in sizes.iter().enumerate() {
+            //let mut size = size2(0., 0.);
+            let mut size = size;
             let item = &self.items[i];
 
             if let Some(w) = item.width {
                 size.width = w * rect.size.width;
             }
+
             if let Some(h) = item.height {
                 size.height = h * rect.size.height;
             }
@@ -214,19 +267,19 @@ pub trait LayoutBuilder: Sized {
     fn get_items(&mut self) -> &mut Vec<Self::Item>;
 
     #[track_caller]
-    fn child(mut self, node: impl ToNode) -> Self {
+    fn child(mut self, node: impl IntoNode) -> Self {
         assert!(
             self.get_children().len() < Self::max_children(),
             "max layout children reached"
         );
 
-        self.get_children().push(node.to_node());
+        self.get_children().push(node.into_node());
         self.get_items().push(Default::default());
         self
     }
 
     #[track_caller]
-    fn children(mut self, nodes: Vec<impl ToNode>) -> Self {
+    fn children(mut self, nodes: Vec<impl IntoNode>) -> Self {
         assert!(
             self.get_children().len() + nodes.len() <= Self::max_children(),
             "adding these children will exceed max layout children"
@@ -235,24 +288,24 @@ pub trait LayoutBuilder: Sized {
         self.get_items()
             .extend((0..nodes.len()).map(|_| Default::default()));
         self.get_children()
-            .extend(nodes.into_iter().map(|x| x.to_node()));
+            .extend(nodes.into_iter().map(|x| x.into_node()));
         self
     }
 
     #[track_caller]
-    fn child_item(mut self, node: impl ToNode, item: impl Into<Self::Item>) -> Self {
+    fn child_item(mut self, node: impl IntoNode, item: impl Into<Self::Item>) -> Self {
         assert!(
             self.get_children().len() < Self::max_children(),
             "max layout children reached"
         );
 
-        self.get_children().push(node.to_node());
+        self.get_children().push(node.into_node());
         self.get_items().push(item.into());
         self
     }
 
     #[track_caller]
-    fn children_items(mut self, nodes: Vec<(impl ToNode, impl Into<Self::Item>)>) -> Self {
+    fn children_items(mut self, nodes: Vec<(impl IntoNode, impl Into<Self::Item>)>) -> Self {
         assert!(
             self.get_children().len() + nodes.len() <= Self::max_children(),
             "adding these children will exceed max layout children"
@@ -261,7 +314,7 @@ pub trait LayoutBuilder: Sized {
         let (nodes, items): (Vec<_>, Vec<_>) = nodes.into_iter().unzip();
         self.get_items().extend(items.into_iter().map(|x| x.into()));
         self.get_children()
-            .extend(nodes.into_iter().map(|x| x.to_node()));
+            .extend(nodes.into_iter().map(|x| x.into_node()));
         self
     }
 }
@@ -298,9 +351,9 @@ impl LayoutBuilder for RowBuilder {
     }
 }
 
-impl ToNode for RowBuilder {
+impl IntoNode for RowBuilder {
     #[ui]
-    fn to_node(self) -> Node {
+    fn into_node(self) -> Node {
         Node::Layout {
             layout: Rc::new(RowLayout {
                 items: self.items,
@@ -308,7 +361,7 @@ impl ToNode for RowBuilder {
                 spacing: self.spacing,
             }),
             children: self.children,
-            z_index: Default::default(),
+            z_order: Default::default(),
         }
     }
 }
@@ -317,6 +370,7 @@ impl ToNode for RowBuilder {
 pub struct RowItem {
     pub align: Align,
     pub margin: Sides2,
+    pub fill: bool,
 }
 
 pub fn row() -> RowBuilder {
@@ -360,9 +414,9 @@ impl LayoutBuilder for ColumnBuilder {
     }
 }
 
-impl ToNode for ColumnBuilder {
+impl IntoNode for ColumnBuilder {
     #[ui]
-    fn to_node(self) -> Node {
+    fn into_node(self) -> Node {
         Node::Layout {
             layout: Rc::new(ColumnLayout {
                 items: self.items,
@@ -370,7 +424,7 @@ impl ToNode for ColumnBuilder {
                 spacing: self.spacing,
             }),
             children: self.children,
-            z_index: Default::default(),
+            z_order: Default::default(),
         }
     }
 }
@@ -379,6 +433,7 @@ impl ToNode for ColumnBuilder {
 pub struct ColumnItem {
     pub align: Align,
     pub margin: Sides2,
+    pub fill: bool,
 }
 
 pub fn column() -> ColumnBuilder {
@@ -429,9 +484,9 @@ impl LayoutBuilder for StackBuilder {
     }
 }
 
-impl ToNode for StackBuilder {
+impl IntoNode for StackBuilder {
     #[ui]
-    fn to_node(self) -> Node {
+    fn into_node(self) -> Node {
         Node::Layout {
             layout: Rc::new(StackLayout {
                 items: self.items,
@@ -440,7 +495,7 @@ impl ToNode for StackBuilder {
                 height: self.height,
             }),
             children: self.children,
-            z_index: Default::default(),
+            z_order: Default::default(),
         }
     }
 }
@@ -574,15 +629,15 @@ impl LayoutBuilder for ContainerBuilder {
     }
 }
 
-impl ToNode for ContainerBuilder {
+impl IntoNode for ContainerBuilder {
     #[ui]
-    fn to_node(self) -> Node {
+    fn into_node(self) -> Node {
         Node::Layout {
             layout: Rc::new(ContainerLayout {
                 margin: self.margin,
             }),
             children: self.children,
-            z_index: Default::default(),
+            z_order: Default::default(),
         }
     }
 }

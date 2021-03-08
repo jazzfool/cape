@@ -1,46 +1,50 @@
-use crate::{container, LayoutBuilder};
-use cape::node::{interact, Interaction, Node, ToNode};
+use crate::{
+    container,
+    deco::{self, Decorated},
+    Callback, LayoutBuilder,
+};
+use cape::node::{interact, Interaction, IntoNode, Node};
 
-pub struct ButtonBuilder {
-    child: Node,
-    padding: cape::Sides2,
-    on_click: Vec<Box<dyn Fn(&Interaction)>>,
-    disabled: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ButtonState {
+    Normal,
+    Hovered,
+    Pressed,
+    Disabled,
 }
 
-impl Default for ButtonBuilder {
-    fn default() -> Self {
-        ButtonBuilder {
-            child: Default::default(),
-            padding: Default::default(),
-            on_click: Vec::new(),
-            disabled: false,
-        }
-    }
+#[derive(Default)]
+pub struct Button {
+    pub child: Node,
+    pub padding: cape::Sides2,
+    pub on_click: Callback<Interaction>,
+    pub disabled: bool,
+    pub decorator: deco::DecoratorHook<ButtonState>,
 }
 
-impl ToNode for ButtonBuilder {
+impl IntoNode for Button {
     #[cape::ui]
-    fn to_node(self) -> Node {
+    fn into_node(self) -> Node {
         let on_click = self.on_click;
 
         interact(
             container().child(self.child).margin(self.padding),
             move |event| {
                 if event.is_mouse_down() {
-                    for e in &on_click {
-                        e(event);
-                    }
+                    on_click.call(event);
                 }
             },
             false,
         )
+        .decorate()
+        .apply(self.decorator, &ButtonState::Normal)
+        .into_node()
     }
 }
 
-impl ButtonBuilder {
-    pub fn child(mut self, child: impl ToNode) -> Self {
-        self.child = child.to_node();
+impl Button {
+    pub fn child(mut self, child: impl IntoNode) -> Self {
+        self.child = child.into_node();
         self
     }
 
@@ -49,8 +53,8 @@ impl ButtonBuilder {
         self
     }
 
-    pub fn on_click(mut self, f: impl Fn(&Interaction) + 'static) -> Self {
-        self.on_click.push(Box::new(f));
+    pub fn on_click(mut self, f: impl Into<Callback<Interaction>>) -> Self {
+        self.on_click = f.into();
         self
     }
 
@@ -58,8 +62,13 @@ impl ButtonBuilder {
         self.disabled = disabled;
         self
     }
+
+    pub fn decorator(mut self, decorator: impl Into<deco::DecoratorHook<ButtonState>>) -> Self {
+        self.decorator = decorator.into();
+        self
+    }
 }
 
-pub fn button() -> ButtonBuilder {
-    ButtonBuilder::default()
+pub fn button() -> Button {
+    Button::default()
 }

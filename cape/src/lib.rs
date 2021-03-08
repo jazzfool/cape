@@ -18,10 +18,6 @@ pub type Size2 = euclid::Size2D<f32, euclid::UnknownUnit>;
 pub type Sides2 = euclid::SideOffsets2D<f32, euclid::UnknownUnit>;
 pub type Rect = euclid::Rect<f32, euclid::UnknownUnit>;
 
-lazy_static::lazy_static! {
-    pub static ref DEFAULT_DARK_BACKGROUND: Color = rgb(38, 38, 38);
-}
-
 pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
     Color::new(
         r as f32 / 255.,
@@ -33,6 +29,22 @@ pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
 
 pub fn rgb(r: u8, g: u8, b: u8) -> Color {
     rgba(r, g, b, 255)
+}
+
+pub const fn frgba(red: f32, green: f32, blue: f32, alpha: f32) -> Color {
+    Color {
+        color: palette::rgb::Rgb {
+            standard: std::marker::PhantomData,
+            red,
+            green,
+            blue,
+        },
+        alpha,
+    }
+}
+
+pub const fn frgb(red: f32, green: f32, blue: f32) -> Color {
+    frgba(red, green, blue, 1.)
 }
 
 #[track_caller]

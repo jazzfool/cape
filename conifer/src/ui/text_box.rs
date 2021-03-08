@@ -1,5 +1,5 @@
 use crate::{column, container, row, stack, LayoutBuilder, StackItem};
-use cape::node::{interact, rectangle, styled_text, Interaction, KeyCode, Node, Paint, ToNode};
+use cape::node::{interact, rectangle, styled_text, Interaction, IntoNode, KeyCode, Node, Paint};
 use cape::state::{use_state, Accessor};
 use cape::{rgb, size2, ui, Sides2};
 
@@ -23,9 +23,9 @@ impl Default for TextBoxBuilder {
     }
 }
 
-impl ToNode for TextBoxBuilder {
+impl IntoNode for TextBoxBuilder {
     #[ui]
-    fn to_node(self) -> Node {
+    fn into_node(self) -> Node {
         interact(
             stack()
                 .height(self.style.height)
@@ -88,8 +88,8 @@ impl TextBoxBuilder {
         self
     }
 
-    pub fn icon(mut self, icon: impl ToNode) -> Self {
-        self.icon = icon.to_node();
+    pub fn icon(mut self, icon: impl IntoNode) -> Self {
+        self.icon = icon.into_node();
         self
     }
 
@@ -192,9 +192,9 @@ impl Default for FloatBoxBuilder {
     }
 }
 
-impl ToNode for FloatBoxBuilder {
+impl IntoNode for FloatBoxBuilder {
     #[ui]
-    fn to_node(mut self) -> Node {
+    fn into_node(mut self) -> Node {
         let on_change = self.on_change.take();
         let min = self.min;
         let max = self.max;
@@ -240,7 +240,7 @@ impl ToNode for FloatBoxBuilder {
                         }
                     }),
             )
-            .to_node()
+            .into_node()
     }
 }
 

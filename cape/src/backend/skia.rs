@@ -107,6 +107,7 @@ fn convert_paint(p: &Paint, rect: Rect, stroke: Option<f32>) -> Result<sk::Paint
                 .to_shader(None, None),
             );
         }
+        _ => {}
     }
     Ok(paint)
 }
@@ -155,6 +156,10 @@ pub fn render_node(
             blob,
             ..
         } => {
+            if let Paint::Blur { .. } = fill {
+                panic!("text does not support blur paint");
+            }
+
             if let Some(blob) = blob {
                 canvas.draw_text_blob(
                     blob,
@@ -172,21 +177,51 @@ pub fn render_node(
             ..
         } => {
             if let Some(bg) = background {
-                canvas.draw_rrect(
-                    sk::RRect::new_rect_radii(
-                        rect.to_skia(),
-                        &[
-                            sk::Vector::new(corner_radii[0], corner_radii[0]),
-                            sk::Vector::new(corner_radii[1], corner_radii[1]),
-                            sk::Vector::new(corner_radii[2], corner_radii[2]),
-                            sk::Vector::new(corner_radii[3], corner_radii[3]),
-                        ],
-                    ),
-                    &convert_paint(bg, *rect, None)?,
+                let rrect = sk::RRect::new_rect_radii(
+                    rect.to_skia(),
+                    &[
+                        sk::Vector::new(corner_radii[0], corner_radii[0]),
+                        sk::Vector::new(corner_radii[1], corner_radii[1]),
+                        sk::Vector::new(corner_radii[2], corner_radii[2]),
+                        sk::Vector::new(corner_radii[3], corner_radii[3]),
+                    ],
                 );
+
+                match bg {
+                    Paint::Blur { radius, tint } => {
+                        canvas.save();
+
+                        canvas.clip_rrect(rrect, None, true);
+
+                        let blur = sk::image_filters::blur(
+                            (*radius, *radius),
+                            sk::TileMode::Clamp,
+                            None,
+                            &rect.to_skia().round(),
+                        )
+                        .ok_or(Error::PaintConversion)?;
+
+                        canvas.save_layer(&sk::canvas::SaveLayerRec::default().backdrop(&blur));
+
+                        canvas.draw_rect(
+                            rect.to_skia(),
+                            &convert_paint(&Paint::Solid(*tint), *rect, None)?,
+                        );
+
+                        canvas.restore();
+                        canvas.restore();
+                    }
+                    _ => {
+                        canvas.draw_rrect(rrect, &convert_paint(bg, *rect, None)?);
+                    }
+                }
             }
 
             if let Some(b) = border_fill {
+                if let Paint::Blur { .. } = b {
+                    panic!("border fill does not support blur paint");
+                }
+
                 canvas.draw_rrect(
                     sk::RRect::new_rect_radii(
                         rect.to_skia(),

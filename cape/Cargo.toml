@@ -9,6 +9,7 @@ homepage = "http://github.com/jazzfool/cape/tree/master/cape"
 repository = "http://github.com/jazzfool/cape"
 
 [features]
+default = ["skulpin_backend"]
 skulpin_backend = ["skulpin"]
 
 [dependencies]

@@ -1,33 +1,6 @@
-use cape::node::{Node, ToNode};
+use cape::node::{IntoNode, Node};
 
 use crate::LayoutBuilder;
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DecoratorCondition {
-    hovered: Option<bool>,
-    pressed: Option<bool>,
-}
-
-impl DecoratorCondition {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn hovered(mut self, hovered: impl Into<Option<bool>>) -> Self {
-        self.hovered = hovered.into();
-        self
-    }
-
-    pub fn pressed(mut self, pressed: impl Into<Option<bool>>) -> Self {
-        self.pressed = pressed.into();
-        self
-    }
-
-    pub fn check(&self, hovered: bool, pressed: bool) -> bool {
-        self.hovered.map(|x| x == hovered).unwrap_or(true)
-            && self.pressed.map(|x| x == pressed).unwrap_or(true)
-    }
-}
 
 pub enum Order {
     Back,
@@ -41,7 +14,7 @@ pub trait Decorator {
 }
 
 pub struct DecoratedNode {
-    stack: Vec<(DecoratorCondition, Node, crate::StackItem)>,
+    stack: Vec<(Node, crate::StackItem)>,
     core: usize,
     padding: cape::Sides2,
 }
@@ -49,35 +22,28 @@ pub struct DecoratedNode {
 impl DecoratedNode {
     pub fn new(node: Node) -> Self {
         DecoratedNode {
-            stack: vec![(Default::default(), node, crate::StackItem::fill())],
+            stack: vec![(node, crate::StackItem::fill())],
             padding: Default::default(),
             core: 0,
         }
     }
 
-    #[inline]
-    pub fn decorator(self, deco: impl Decorator) -> Self {
-        self.decorator_if(Default::default(), deco)
-    }
-
-    pub fn decorator_if(mut self, cond: DecoratorCondition, deco: impl Decorator) -> Self {
+    pub fn decorator(mut self, deco: impl Decorator) -> Self {
         let item = deco.layout();
 
         match deco.order() {
             Order::Back => {
                 self.core += 1;
-                self.stack
-                    .insert(0, (Default::default(), deco.node(), item))
+                self.stack.insert(0, (deco.node(), item))
             }
-            Order::Front => self.stack.push((cond, deco.node(), item)),
+            Order::Front => self.stack.push((deco.node(), item)),
         }
 
         self
     }
 
-    #[inline]
-    pub fn apply(self, deco_fn: impl FnOnce(DecoratedNode) -> DecoratedNode) -> Self {
-        deco_fn(self)
+    pub fn apply<State>(self, mut hook: DecoratorHook<State>, state: &State) -> Self {
+        hook.apply(self, state)
     }
 
     pub fn padding(mut self, padding: cape::Sides2) -> Self {
@@ -86,8 +52,8 @@ impl DecoratedNode {
     }
 }
 
-impl cape::node::ToNode for DecoratedNode {
-    fn to_node(self) -> Node {
+impl cape::node::IntoNode for DecoratedNode {
+    fn into_node(self) -> Node {
         let core = self.core;
         let padding = self.padding;
 
@@ -96,10 +62,10 @@ impl cape::node::ToNode for DecoratedNode {
                 self.stack
                     .into_iter()
                     .enumerate()
-                    .map(|(i, (cond, node, item))| {
+                    .map(|(i, (node, item))| {
                         if i == core {
                             (
-                                crate::container().margin(padding).child(node).to_node(),
+                                crate::container().margin(padding).child(node).into_node(),
                                 item,
                             )
                         } else {
@@ -108,7 +74,7 @@ impl cape::node::ToNode for DecoratedNode {
                     })
                     .collect(),
             )
-            .to_node()
+            .into_node()
     }
 }
 
@@ -121,8 +87,37 @@ pub trait Decorated: Sized {
     }
 }
 
-impl<N: cape::node::ToNode> Decorated for N {
+impl<N: cape::node::IntoNode> Decorated for N {
     fn decorate(self) -> DecoratedNode {
-        DecoratedNode::new(self.to_node())
+        DecoratedNode::new(self.into_node())
+    }
+}
+
+pub enum DecoratorHook<State> {
+    None,
+    Func(Box<dyn FnMut(&State, DecoratedNode) -> DecoratedNode>),
+}
+
+impl<State, F: FnMut(&State, DecoratedNode) -> DecoratedNode + 'static> From<F>
+    for DecoratorHook<State>
+{
+    fn from(f: F) -> Self {
+        DecoratorHook::Func(Box::new(f))
+    }
+}
+
+impl<State> Default for DecoratorHook<State> {
+    fn default() -> Self {
+        DecoratorHook::None
+    }
+}
+
+impl<State> DecoratorHook<State> {
+    pub fn apply(&mut self, node: DecoratedNode, state: &State) -> DecoratedNode {
+        if let DecoratorHook::Func(f) = self {
+            f(state, node)
+        } else {
+            node
+        }
     }
 }

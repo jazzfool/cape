@@ -1,5 +1,5 @@
 use crate::{stack, LayoutBuilder, StackItem};
-use cape::node::{rectangle, Paint, ToNode};
+use cape::node::{rectangle, IntoNode, Paint};
 use cape::{rgb, size2};
 
 pub struct ProgressBarStyle {
@@ -30,7 +30,7 @@ pub fn progress_bar(
     value: f32,
     width: f32,
     style: impl Into<Option<ProgressBarStyle>>,
-) -> impl ToNode {
+) -> impl IntoNode {
     let style = style.into().unwrap_or_else(ProgressBarStyle::default_dark);
 
     stack()

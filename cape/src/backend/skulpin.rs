@@ -1,11 +1,10 @@
-use crate::id::Id;
-use crate::node::{Interaction, MouseButton, Node, Paint, ResolvedNode, Resources};
-use crate::state::{call_on_lifecycles, call_on_renders};
 use crate::{
     backend::skia::{render_list, Cache as SkiaCache},
-    state::use_event,
+    id::Id,
+    node::{Interaction, MouseButton, Node, Paint, ResolvedNode, Resources},
+    state::{call_on_lifecycles, call_on_renders, use_event},
+    Color, Point2, Size2,
 };
-use crate::{Color, Point2};
 use skulpin::winit;
 use thiserror::Error;
 
@@ -22,7 +21,9 @@ pub struct Window {
     pub background: Color,
 }
 
-pub struct WindowInfo {}
+pub struct WindowInfo {
+    pub size: Size2,
+}
 
 pub fn run(
     mut f: impl FnMut(&WindowInfo, &mut Resources) -> Window + 'static,
@@ -41,6 +42,7 @@ pub fn run(
     let mut renderer = skulpin::RendererBuilder::new()
         .use_vulkan_debug_layer(false)
         .coordinate_system(skulpin::CoordinateSystem::Logical)
+        .prefer_mailbox_present_mode()
         .build(&window)?;
 
     let mut skia_cache = SkiaCache::default();
@@ -51,6 +53,11 @@ pub fn run(
         fallback_text_fill: Paint::Solid(Color::new(1., 1., 1., 1.)),
     };
 
+    let mut scale_factor = winit_window.scale_factor();
+
+    let size = winit_window.inner_size().to_logical(scale_factor);
+    let mut size = Size2::new(size.width, size.height);
+
     let mut modifiers = winit::event::ModifiersState::default();
     let mut mouse_pos = Point2::default();
     let mut latest_nodes: Option<Vec<ResolvedNode>> = None;
@@ -58,6 +65,7 @@ pub fn run(
 
     event_loop.run(move |event, _window_target, control_flow| {
         let out_evt = use_event();
+        let interact_evt = use_event();
 
         let window = skulpin::WinitWindow::new(&winit_window);
 
@@ -66,6 +74,27 @@ pub fn run(
                 event: winit::event::WindowEvent::CloseRequested,
                 ..
             } => *control_flow = winit::event_loop::ControlFlow::Exit,
+            winit::event::Event::WindowEvent {
+                event:
+                    winit::event::WindowEvent::ScaleFactorChanged {
+                        scale_factor: sf,
+                        ref new_inner_size,
+                    },
+                ..
+            } => {
+                scale_factor = sf;
+                let logical = new_inner_size.to_logical(scale_factor);
+                size.width = logical.width;
+                size.height = logical.height;
+            }
+            winit::event::Event::WindowEvent {
+                event: winit::event::WindowEvent::Resized(physical_size),
+                ..
+            } => {
+                let logical = physical_size.to_logical(scale_factor);
+                size.width = logical.width;
+                size.height = logical.height;
+            }
             winit::event::Event::WindowEvent {
                 event: winit::event::WindowEvent::ModifiersChanged(mods),
                 ..
@@ -143,19 +172,23 @@ pub fn run(
                 event: winit::event::WindowEvent::KeyboardInput { input, .. },
                 ..
             } => {
-                if let Some(ResolvedNode::Interact { callback, .. }) = &focus_node {
+                if let Some(key_code) = input.virtual_keycode {
                     let event = match input.state {
                         winit::event::ElementState::Pressed => Interaction::KeyDown {
-                            key_code: input.virtual_keycode.unwrap(),
+                            key_code,
                             modifiers,
                         },
                         winit::event::ElementState::Released => Interaction::KeyUp {
-                            key_code: input.virtual_keycode.unwrap(),
+                            key_code,
                             modifiers,
                         },
                     };
 
-                    callback(&event);
+                    interact_evt.emit(&event);
+
+                    if let Some(ResolvedNode::Interact { callback, .. }) = &focus_node {
+                        callback(&event);
+                    }
                 }
             }
             winit::event::Event::MainEventsCleared => {
@@ -165,7 +198,7 @@ pub fn run(
                 let latest_nodes = &mut latest_nodes;
                 renderer
                     .draw(&window, |canvas, _coordinate_system_helper| {
-                        let w = f(&WindowInfo {}, &mut resources);
+                        let w = f(&WindowInfo { size }, &mut resources);
                         if let Some(mut node) =
                             w.body.resolve(&resources).expect("failed to resolve node")
                         {
@@ -173,7 +206,7 @@ pub fn run(
 
                             node.perform_layout();
                             node.invoke_captures();
-                            *latest_nodes = Some(node.flatten().collect::<Vec<_>>());
+                            *latest_nodes = Some(node.flatten());
 
                             canvas.clear(skulpin::skia_safe::Color::from_argb(
                                 (w.background.alpha * 255.) as _,
@@ -181,6 +214,7 @@ pub fn run(
                                 (w.background.green * 255.) as _,
                                 (w.background.blue * 255.) as _,
                             ));
+
                             render_list(
                                 &mut skia_cache,
                                 canvas,

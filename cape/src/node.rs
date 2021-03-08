@@ -1,11 +1,8 @@
 use crate::id::Id;
 use crate::{size2, Color, Error, Image, Point2, Rect, Size2};
-use std::any::Any;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-
-use crate as cape;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
@@ -21,11 +18,25 @@ pub enum Paint {
         radius: f32,
     },
     Image(Rc<Image>),
+    Blur {
+        radius: f32,
+        tint: Color,
+    },
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct ZIndex(pub i32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ZOrder {
+    Bottom,
+    Above,
+    Below,
+    Top,
+}
+
+impl Default for ZOrder {
+    fn default() -> Self {
+        ZOrder::Above
+    }
+}
 
 #[derive(Clone)]
 pub enum Node {
@@ -35,24 +46,24 @@ pub enum Node {
         callback: Rc<dyn Fn(&Interaction)>,
         id: Id,
         passthrough: bool,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Capture {
         child: Box<Node>,
         callback: Rc<dyn Fn(&ResolvedNode)>,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Layout {
         layout: Rc<dyn Layout>,
         children: Vec<Node>,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Text {
         text: String,
         font: String,
         size: Option<f32>,
         fill: Option<Paint>,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Rectangle {
         size: Size2,
@@ -60,12 +71,12 @@ pub enum Node {
         background: Option<Paint>,
         border: f32,
         border_fill: Option<Paint>,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Draw {
         size: Size2,
         draw_fn: Rc<dyn Fn(Rect, &mut skia_safe::Canvas)>,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
 }
 
@@ -79,7 +90,7 @@ impl Node {
                 callback,
                 id,
                 passthrough,
-                z_index,
+                z_order,
             } => {
                 let child = child.resolve(resources)?.ok_or(Error::EmptyNode)?;
                 Ok(Some(ResolvedNode::Interact {
@@ -88,26 +99,26 @@ impl Node {
                     callback: Rc::clone(callback),
                     id: *id,
                     passthrough: *passthrough,
-                    z_index: *z_index,
+                    z_order: *z_order,
                 }))
             }
             Node::Capture {
                 child,
                 callback,
-                z_index,
+                z_order,
             } => {
                 let child = child.resolve(resources)?.ok_or(Error::EmptyNode)?;
                 Ok(Some(ResolvedNode::Capture {
                     rect: Rect::new(Default::default(), child.size()),
                     child: Box::new(child),
                     callback: Rc::clone(callback),
-                    z_index: *z_index,
+                    z_order: *z_order,
                 }))
             }
             Node::Layout {
                 layout,
                 children,
-                z_index,
+                z_order,
             } => {
                 let children = children
                     .iter()
@@ -126,7 +137,7 @@ impl Node {
                     layout: Rc::clone(layout),
                     children,
                     rect: Rect::new(Default::default(), size),
-                    z_index: *z_index,
+                    z_order: *z_order,
                 }))
             }
             Node::Text {
@@ -134,7 +145,7 @@ impl Node {
                 font,
                 size,
                 fill,
-                z_index,
+                z_order,
             } => {
                 skia_safe::icu::init();
 
@@ -179,7 +190,7 @@ impl Node {
                         .unwrap_or_else(|| resources.fallback_text_fill.clone()),
                     bounds,
                     bottom_left: Default::default(),
-                    z_index: *z_index,
+                    z_order: *z_order,
                 }))
             }
             Node::Rectangle {
@@ -188,23 +199,23 @@ impl Node {
                 background,
                 border,
                 border_fill,
-                z_index,
+                z_order,
             } => Ok(Some(ResolvedNode::Rectangle {
                 rect: Rect::new(Default::default(), *size),
                 corner_radii: *corner_radius,
                 background: background.clone(),
                 border: *border,
                 border_fill: border_fill.clone(),
-                z_index: *z_index,
+                z_order: *z_order,
             })),
             Node::Draw {
                 size,
                 draw_fn,
-                z_index,
+                z_order,
             } => Ok(Some(ResolvedNode::Draw {
                 rect: Rect::new(Default::default(), *size),
                 draw_fn: Rc::clone(draw_fn),
-                z_index: *z_index,
+                z_order: *z_order,
             })),
         }
     }
@@ -260,24 +271,24 @@ impl Node {
         }
     }
 
-    pub fn z_index(&self) -> ZIndex {
+    pub fn z_order(&self) -> ZOrder {
         match self {
-            Node::Interact { z_index, .. }
-            | Node::Layout { z_index, .. }
-            | Node::Text { z_index, .. }
-            | Node::Rectangle { z_index, .. }
-            | Node::Draw { z_index, .. } => *z_index,
+            Node::Interact { z_order, .. }
+            | Node::Layout { z_order, .. }
+            | Node::Text { z_order, .. }
+            | Node::Rectangle { z_order, .. }
+            | Node::Draw { z_order, .. } => *z_order,
             _ => Default::default(),
         }
     }
 
-    pub fn z_index_mut(&mut self) -> Option<&mut ZIndex> {
+    pub fn z_order_mut(&mut self) -> Option<&mut ZOrder> {
         match self {
-            Node::Interact { z_index, .. }
-            | Node::Layout { z_index, .. }
-            | Node::Text { z_index, .. }
-            | Node::Rectangle { z_index, .. }
-            | Node::Draw { z_index, .. } => Some(z_index),
+            Node::Interact { z_order, .. }
+            | Node::Layout { z_order, .. }
+            | Node::Text { z_order, .. }
+            | Node::Rectangle { z_order, .. }
+            | Node::Draw { z_order, .. } => Some(z_order),
             _ => None,
         }
     }
@@ -289,25 +300,25 @@ impl Default for Node {
     }
 }
 
-pub trait ToNode {
-    fn to_node(self) -> Node;
+pub trait IntoNode {
+    fn into_node(self) -> Node;
 }
 
-impl<S: Into<String>> ToNode for S {
-    fn to_node(self) -> Node {
+impl<S: Into<String>> IntoNode for S {
+    fn into_node(self) -> Node {
         text(self)
     }
 }
 
-impl ToNode for Node {
-    fn to_node(self) -> Node {
+impl IntoNode for Node {
+    fn into_node(self) -> Node {
         self
     }
 }
 
-pub fn iff<N: ToNode>(cond: bool, f: impl FnOnce() -> N) -> Node {
+pub fn iff<N: IntoNode>(cond: bool, f: impl FnOnce() -> N) -> Node {
     if cond {
-        f().to_node()
+        f().into_node()
     } else {
         null()
     }
@@ -319,16 +330,16 @@ pub fn null() -> Node {
 
 #[track_caller]
 pub fn interact(
-    child: impl ToNode,
+    child: impl IntoNode,
     callback: impl Fn(&Interaction) + 'static,
     passthrough: bool,
 ) -> Node {
     Node::Interact {
-        child: Box::new(child.to_node()),
+        child: Box::new(child.into_node()),
         callback: Rc::new(callback),
         id: Id::current(),
         passthrough,
-        z_index: Default::default(),
+        z_order: Default::default(),
     }
 }
 
@@ -338,7 +349,7 @@ pub fn text(text: impl Into<String>) -> Node {
         font: String::from("sans-serif"),
         size: None,
         fill: None,
-        z_index: Default::default(),
+        z_order: Default::default(),
     }
 }
 
@@ -353,7 +364,7 @@ pub fn styled_text(
         font: font.into(),
         size: size.into(),
         fill: fill.into(),
-        z_index: Default::default(),
+        z_order: Default::default(),
     }
 }
 
@@ -370,7 +381,7 @@ pub fn rectangle(
         background: background.into(),
         border,
         border_fill: border_fill.into(),
-        z_index: Default::default(),
+        z_order: Default::default(),
     }
 }
 
@@ -378,14 +389,14 @@ pub fn draw(size: Size2, draw_fn: impl Fn(Rect, &mut skia_safe::Canvas) + 'stati
     Node::Draw {
         size,
         draw_fn: Rc::new(draw_fn),
-        z_index: Default::default(),
+        z_order: Default::default(),
     }
 }
 
-pub fn z_index(node: impl ToNode, z_index: ZIndex) -> Node {
-    let mut node = node.to_node();
-    if let Some(z) = node.z_index_mut() {
-        *z = z_index;
+pub fn z_order(node: impl IntoNode, z_order: ZOrder) -> Node {
+    let mut node = node.into_node();
+    if let Some(z) = node.z_order_mut() {
+        *z = z_order;
     }
     node
 }
@@ -454,19 +465,19 @@ pub enum ResolvedNode {
         rect: Rect,
         id: Id,
         passthrough: bool,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Capture {
         child: Box<ResolvedNode>,
         callback: Rc<dyn Fn(&ResolvedNode)>,
         rect: Rect,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Layout {
         layout: Rc<dyn Layout>,
         children: Vec<ResolvedNode>,
         rect: Rect,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Text {
         text: String,
@@ -478,7 +489,7 @@ pub enum ResolvedNode {
         fill: Paint,
         bounds: Size2,
         bottom_left: Point2,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Rectangle {
         rect: Rect,
@@ -486,12 +497,12 @@ pub enum ResolvedNode {
         background: Option<Paint>,
         border: f32,
         border_fill: Option<Paint>,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
     Draw {
         rect: Rect,
         draw_fn: Rc<dyn Fn(Rect, &mut skia_safe::Canvas)>,
-        z_index: ZIndex,
+        z_order: ZOrder,
     },
 }
 
@@ -591,26 +602,26 @@ impl ResolvedNode {
         matches!(self, ResolvedNode::Interact { .. })
     }
 
-    pub fn z_index(&self) -> ZIndex {
+    pub fn z_order(&self) -> ZOrder {
         match self {
-            ResolvedNode::Interact { z_index, .. }
-            | ResolvedNode::Capture { z_index, .. }
-            | ResolvedNode::Layout { z_index, .. }
-            | ResolvedNode::Text { z_index, .. }
-            | ResolvedNode::Rectangle { z_index, .. }
-            | ResolvedNode::Draw { z_index, .. } => *z_index,
+            ResolvedNode::Interact { z_order, .. }
+            | ResolvedNode::Capture { z_order, .. }
+            | ResolvedNode::Layout { z_order, .. }
+            | ResolvedNode::Text { z_order, .. }
+            | ResolvedNode::Rectangle { z_order, .. }
+            | ResolvedNode::Draw { z_order, .. } => *z_order,
             _ => panic!("null resolved node"),
         }
     }
 
-    pub fn z_index_mut(&mut self) -> Option<&mut ZIndex> {
+    pub fn z_order_mut(&mut self) -> Option<&mut ZOrder> {
         match self {
-            ResolvedNode::Interact { z_index, .. }
-            | ResolvedNode::Capture { z_index, .. }
-            | ResolvedNode::Layout { z_index, .. }
-            | ResolvedNode::Text { z_index, .. }
-            | ResolvedNode::Rectangle { z_index, .. }
-            | ResolvedNode::Draw { z_index, .. } => Some(z_index),
+            ResolvedNode::Interact { z_order, .. }
+            | ResolvedNode::Capture { z_order, .. }
+            | ResolvedNode::Layout { z_order, .. }
+            | ResolvedNode::Text { z_order, .. }
+            | ResolvedNode::Rectangle { z_order, .. }
+            | ResolvedNode::Draw { z_order, .. } => Some(z_order),
             _ => panic!("null resolved node"),
         }
     }
@@ -631,35 +642,90 @@ impl ResolvedNode {
 
     /// Flattens the tree into a list, sorted by z-index.
     ///
-    /// All the children of `Interact` and `Capture` nodes will be replaced with `Null`, meaning that invoking any positioning/sizing/z-indexing methods on these nodes will `panic!`.
+    /// All the children of `Interact`, `Capture`, and `Layout` nodes will be replaced with `Null`, meaning that invoking any positioning/sizing/z-indexing methods on these nodes will `panic!`.
     /// Therefore, you should only call `flatten` on a tree that has already been layed out and operated on.
-    pub fn flatten(&self) -> impl Iterator<Item = Self> {
-        let mut map = BTreeMap::<ZIndex, Vec<ResolvedNode>>::new();
-
-        self.flatten_impl(&mut map, Default::default());
-
-        map.into_iter()
-            .fold(Vec::new(), |mut vec, (_z, mut nodes)| {
-                vec.append(&mut nodes);
-                vec
-            })
-            .into_iter()
+    pub fn flatten(&self) -> Vec<ResolvedNode> {
+        let mut bottom = Vec::new();
+        let mut top = Vec::new();
+        let center = self.flatten_impl(&mut bottom, &mut top);
+        [bottom, center, top].concat()
     }
 
-    fn flatten_impl(&self, map: &mut BTreeMap<ZIndex, Vec<ResolvedNode>>, mut base_z: ZIndex) {
-        // NOTE(jazzfool): if absolute ZIndex were ever to be implemented: change the '+=' to '=' when it is absolute
-        base_z.0 += self.z_index().0;
-        map.entry(base_z).or_default().push(self.clone());
-        match map.get_mut(&base_z).unwrap().last_mut().unwrap() {
-            ResolvedNode::Interact { child, .. } | ResolvedNode::Capture { child, .. } => {
-                *child = Box::new(ResolvedNode::Null)
+    fn flatten_impl(
+        &self,
+        bottom: &mut Vec<ResolvedNode>,
+        top: &mut Vec<ResolvedNode>,
+    ) -> Vec<ResolvedNode> {
+        let children = self.children();
+
+        let mut v = Vec::new();
+        v.reserve(children.len() + 1);
+
+        v.push(self.flat_clone());
+
+        for child in children {
+            let mut branch = child.flatten_impl(bottom, top);
+            match child.z_order() {
+                ZOrder::Bottom => bottom.append(&mut branch),
+                ZOrder::Above => v.append(&mut branch),
+                ZOrder::Below => v = [branch, v].concat(),
+                ZOrder::Top => top.append(&mut branch),
             }
-            ResolvedNode::Layout { children, .. } => children.clear(),
-            _ => {}
         }
 
-        for child in self.children() {
-            child.flatten_impl(map, base_z);
+        match self.z_order() {
+            ZOrder::Bottom => {
+                bottom.append(&mut v);
+                vec![]
+            }
+            ZOrder::Above | ZOrder::Below => v,
+            ZOrder::Top => {
+                top.append(&mut v);
+                vec![]
+            }
+        }
+    }
+
+    fn flat_clone(&self) -> Self {
+        match self {
+            ResolvedNode::Interact {
+                callback,
+                rect,
+                id,
+                passthrough,
+                z_order,
+                ..
+            } => ResolvedNode::Interact {
+                child: Box::new(ResolvedNode::Null),
+                callback: callback.clone(),
+                rect: *rect,
+                id: *id,
+                passthrough: *passthrough,
+                z_order: *z_order,
+            },
+            ResolvedNode::Capture {
+                callback,
+                rect,
+                z_order,
+                ..
+            } => ResolvedNode::Capture {
+                child: Box::new(ResolvedNode::Null),
+                callback: callback.clone(),
+                rect: *rect,
+                z_order: *z_order,
+            },
+            ResolvedNode::Layout {
+                layout,
+                rect,
+                z_order,
+                ..
+            } => ResolvedNode::Layout {
+                layout: Rc::clone(layout),
+                children: Vec::new(),
+                rect: *rect,
+                z_order: *z_order,
+            },
+            _ => self.clone(),
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::{stack, LayoutBuilder, StackItem};
-use cape::node::{interact, rectangle, Node, Paint, ToNode};
+use cape::node::{interact, rectangle, IntoNode, Node, Paint};
 use cape::state::Accessor;
 use cape::{point2, rgb, size2, Size2};
 
@@ -25,9 +25,9 @@ impl Default for SliderBuilder {
     }
 }
 
-impl ToNode for SliderBuilder {
+impl IntoNode for SliderBuilder {
     #[cape::ui]
-    fn to_node(self) -> Node {
+    fn into_node(self) -> Node {
         stack()
             .width(self.width)
             .height(self.style.slider_size.height)
@@ -68,7 +68,7 @@ impl ToNode for SliderBuilder {
                     ..Default::default()
                 },
             )
-            .to_node()
+            .into_node()
     }
 }
 
