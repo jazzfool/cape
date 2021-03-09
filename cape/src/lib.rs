@@ -9,7 +9,7 @@ pub use cape_macro::{ui, unique_ui};
 pub use euclid::{point2, rect, size2};
 pub use image::RgbaImage as Image;
 pub use palette::rgb::LinSrgba as Color;
-pub use skia_safe as skia;
+pub use skulpin::skia_safe as skia;
 pub use topo::{self, CallId};
 
 pub type Point2 = euclid::Point2D<f32, euclid::UnknownUnit>;

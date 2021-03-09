@@ -1,8 +1,7 @@
-use crate::id::Id;
-use crate::{size2, Color, Error, Image, Point2, Rect, Size2};
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Arc;
+use crate::{id::Id, size2, Color, Error, Image, Point2, Rect, Size2};
+use ordered_float::OrderedFloat;
+use skulpin::skia_safe as sk;
+use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
@@ -75,14 +74,14 @@ pub enum Node {
     },
     Draw {
         size: Size2,
-        draw_fn: Rc<dyn Fn(Rect, &mut skia_safe::Canvas)>,
+        draw_fn: Rc<dyn Fn(Rect, &mut sk::Canvas)>,
         z_order: ZOrder,
     },
 }
 
 impl Node {
     /// Returns the `ResolvedNode` version of this node tree.
-    pub fn resolve(&self, resources: &Resources) -> Result<Option<ResolvedNode>, Error> {
+    pub fn resolve(&self, resources: &mut Resources) -> Result<Option<ResolvedNode>, Error> {
         match self {
             Node::Null => Ok(None),
             Node::Interact {
@@ -147,32 +146,39 @@ impl Node {
                 fill,
                 z_order,
             } => {
-                skia_safe::icu::init();
-
                 let size = size.unwrap_or_else(|| resources.fallback_text_size);
                 let font_data = Rc::clone(&resources.fonts[font]);
-                let fnt = skia_safe::Font::new(&font_data.sk, size);
+                let fnt = sk::Font::new(&font_data.sk, size);
 
                 let (blob, bounds) = if !text.is_empty() {
-                    let mut text_blob_builder_run_handler =
-                        skia_safe::shaper::TextBlobBuilderRunHandler::new(
-                            &text,
-                            skia_safe::Point::default(),
-                        );
+                    let (blob, bounds) = resources
+                        .shaper_cache
+                        .entry((text.clone(), font.clone(), OrderedFloat(size)))
+                        .or_insert_with(|| {
+                            let mut text_blob_builder_run_handler =
+                                sk::shaper::TextBlobBuilderRunHandler::new(
+                                    &text,
+                                    sk::Point::default(),
+                                );
 
-                    let shaper = skia_safe::Shaper::new(None);
+                            let shaper = sk::Shaper::new(None);
 
-                    shaper.shape(
-                        &text,
-                        &fnt,
-                        true,
-                        std::f32::MAX,
-                        &mut text_blob_builder_run_handler,
-                    );
+                            shaper.shape(
+                                &text,
+                                &fnt,
+                                true,
+                                std::f32::MAX,
+                                &mut text_blob_builder_run_handler,
+                            );
 
-                    let blob = text_blob_builder_run_handler.make_blob().unwrap();
-                    let bounds = fnt.measure_str(&text, None).1;
-                    let bounds = size2(bounds.width(), fnt.spacing());
+                            let blob = text_blob_builder_run_handler.make_blob().unwrap();
+                            let bounds = fnt.measure_str(&text, None).1;
+                            let bounds = size2(bounds.width(), fnt.spacing());
+
+                            (blob, bounds)
+                        })
+                        .clone();
+
                     (Some(blob), bounds)
                 } else {
                     (None, size2(0., 0.))
@@ -188,8 +194,7 @@ impl Node {
                     fill: fill
                         .clone()
                         .unwrap_or_else(|| resources.fallback_text_fill.clone()),
-                    bounds,
-                    bottom_left: Default::default(),
+                    rect: Rect::new(Default::default(), bounds),
                     z_order: *z_order,
                 }))
             }
@@ -225,49 +230,6 @@ impl Node {
             Node::Interact { child, .. } => vec![child.as_ref()],
             Node::Layout { children, .. } => children.iter().collect(),
             _ => vec![],
-        }
-    }
-
-    pub fn text_layout(
-        &self,
-        resources: &Resources,
-    ) -> Option<(Option<skia_safe::TextBlob>, Size2)> {
-        if let Node::Text {
-            text, font, size, ..
-        } = self
-        {
-            skia_safe::icu::init();
-
-            let size = size.unwrap_or_else(|| resources.fallback_text_size);
-            let font_data = Rc::clone(&resources.fonts[font]);
-            let fnt = skia_safe::Font::new(&font_data.sk, size);
-
-            Some(if !text.is_empty() {
-                let mut text_blob_builder_run_handler =
-                    skia_safe::shaper::TextBlobBuilderRunHandler::new(
-                        &text,
-                        skia_safe::Point::default(),
-                    );
-
-                let shaper = skia_safe::Shaper::new(None);
-
-                shaper.shape(
-                    &text,
-                    &fnt,
-                    true,
-                    std::f32::MAX,
-                    &mut text_blob_builder_run_handler,
-                );
-
-                let blob = text_blob_builder_run_handler.make_blob().unwrap();
-                let bounds = fnt.measure_str(&text, None).1;
-                let bounds = size2(bounds.width(), fnt.spacing());
-                (Some(blob), bounds)
-            } else {
-                (None, size2(0., 0.))
-            })
-        } else {
-            None
         }
     }
 
@@ -385,7 +347,7 @@ pub fn rectangle(
     }
 }
 
-pub fn draw(size: Size2, draw_fn: impl Fn(Rect, &mut skia_safe::Canvas) + 'static) -> Node {
+pub fn draw(size: Size2, draw_fn: impl Fn(Rect, &mut sk::Canvas) + 'static) -> Node {
     Node::Draw {
         size,
         draw_fn: Rc::new(draw_fn),
@@ -483,12 +445,11 @@ pub enum ResolvedNode {
         text: String,
         font: String,
         font_data: Rc<Font>,
-        sk_font: Rc<skia_safe::Font>,
-        blob: Option<skia_safe::TextBlob>,
+        sk_font: Rc<sk::Font>,
+        blob: Option<sk::TextBlob>,
         size: f32,
         fill: Paint,
-        bounds: Size2,
-        bottom_left: Point2,
+        rect: Rect,
         z_order: ZOrder,
     },
     Rectangle {
@@ -501,7 +462,7 @@ pub enum ResolvedNode {
     },
     Draw {
         rect: Rect,
-        draw_fn: Rc<dyn Fn(Rect, &mut skia_safe::Canvas)>,
+        draw_fn: Rc<dyn Fn(Rect, &mut sk::Canvas)>,
         z_order: ZOrder,
     },
 }
@@ -545,12 +506,8 @@ impl ResolvedNode {
             | ResolvedNode::Capture { rect, .. }
             | ResolvedNode::Layout { rect, .. }
             | ResolvedNode::Rectangle { rect, .. }
+            | ResolvedNode::Text { rect, .. }
             | ResolvedNode::Draw { rect, .. } => rect.origin,
-            ResolvedNode::Text {
-                bounds,
-                bottom_left,
-                ..
-            } => *bottom_left - size2(0., bounds.height).to_vector(),
             _ => panic!("null resolved node"),
         }
     }
@@ -562,8 +519,8 @@ impl ResolvedNode {
             | ResolvedNode::Capture { rect, .. }
             | ResolvedNode::Layout { rect, .. }
             | ResolvedNode::Rectangle { rect, .. }
+            | ResolvedNode::Text { rect, .. }
             | ResolvedNode::Draw { rect, .. } => rect.size,
-            ResolvedNode::Text { bounds, .. } => *bounds,
             _ => panic!("null resolved node"),
         }
     }
@@ -583,7 +540,7 @@ impl ResolvedNode {
             | ResolvedNode::Layout { rect, .. }
             | ResolvedNode::Rectangle { rect, .. }
             | ResolvedNode::Draw { rect, .. } => *rect = r,
-            ResolvedNode::Text { bottom_left, .. } => *bottom_left = r.origin,
+            ResolvedNode::Text { rect, .. } => rect.origin = r.origin,
             _ => panic!("null resolved node"),
         }
     }
@@ -644,18 +601,26 @@ impl ResolvedNode {
     ///
     /// All the children of `Interact`, `Capture`, and `Layout` nodes will be replaced with `Null`, meaning that invoking any positioning/sizing/z-indexing methods on these nodes will `panic!`.
     /// Therefore, you should only call `flatten` on a tree that has already been layed out and operated on.
-    pub fn flatten(&self) -> Vec<ResolvedNode> {
+    pub fn flatten(&self, cull: &Rect) -> Vec<ResolvedNode> {
         let mut bottom = Vec::new();
         let mut top = Vec::new();
-        let center = self.flatten_impl(&mut bottom, &mut top);
-        [bottom, center, top].concat()
+        let mut center = self.flatten_impl(&mut bottom, &mut top, cull);
+
+        bottom.append(&mut center);
+        bottom.append(&mut top);
+        bottom
     }
 
     fn flatten_impl(
         &self,
         bottom: &mut Vec<ResolvedNode>,
         top: &mut Vec<ResolvedNode>,
+        cull: &Rect,
     ) -> Vec<ResolvedNode> {
+        if !self.rect().inflate(5., 5.).intersects(cull) {
+            return vec![];
+        }
+
         let children = self.children();
 
         let mut v = Vec::new();
@@ -664,11 +629,15 @@ impl ResolvedNode {
         v.push(self.flat_clone());
 
         for child in children {
-            let mut branch = child.flatten_impl(bottom, top);
+            let mut branch = child.flatten_impl(bottom, top, cull);
             match child.z_order() {
                 ZOrder::Bottom => bottom.append(&mut branch),
                 ZOrder::Above => v.append(&mut branch),
-                ZOrder::Below => v = [branch, v].concat(),
+                ZOrder::Below => {
+                    let mut branch = branch.clone();
+                    branch.append(&mut v);
+                    v = branch
+                }
                 ZOrder::Top => top.append(&mut branch),
             }
         }
@@ -734,14 +703,14 @@ pub use font_kit::properties::Properties as FontProperties;
 
 pub struct Font {
     pub font: font_kit::font::Font,
-    pub sk: skia_safe::Typeface,
+    pub sk: sk::Typeface,
 }
 
 impl Font {
     pub fn new(font: font_kit::font::Font) -> Result<Self, Error> {
         Ok(Font {
-            sk: skia_safe::Typeface::from_data(
-                skia_safe::Data::new_copy(font.copy_font_data().unwrap().as_slice()),
+            sk: sk::Typeface::from_data(
+                sk::Data::new_copy(font.copy_font_data().unwrap().as_slice()),
                 None,
             )
             .ok_or(Error::SkiaFont)?,
@@ -755,6 +724,7 @@ pub struct Resources {
     pub fonts: HashMap<String, Rc<Font>>,
     pub fallback_text_size: f32,
     pub fallback_text_fill: Paint,
+    pub shaper_cache: HashMap<(String, String, OrderedFloat<f32>), (sk::TextBlob, Size2)>,
 }
 
 impl Resources {

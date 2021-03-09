@@ -1,6 +1,6 @@
 use crate::node::{Paint, ResolvedNode, Resources};
 use crate::{Color, Point2, Rect, ToSkia};
-use skia_safe::{self as sk, Canvas};
+use skulpin::skia_safe as sk;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -118,26 +118,32 @@ fn convert_point(point: Point2) -> sk::Point {
 
 pub fn render_list(
     cache: &mut Cache,
-    canvas: &mut Canvas,
+    canvas: &mut sk::Canvas,
     resources: &Resources,
     list: &[ResolvedNode],
+    cull: &Rect,
 ) -> Result<(), Error> {
     for node in list {
-        render_node(cache, canvas, resources, node)?;
+        if cull.intersects(&node.rect()) {
+            render_node(cache, canvas, resources, node)?;
+        }
     }
     Ok(())
 }
 
 pub fn render_tree(
     cache: &mut Cache,
-    canvas: &mut Canvas,
+    canvas: &mut sk::Canvas,
     resources: &Resources,
     node: &ResolvedNode,
+    cull: &Rect,
 ) -> Result<(), Error> {
-    render_node(cache, canvas, resources, node)?;
+    if cull.intersects(&node.rect()) {
+        render_node(cache, canvas, resources, node)?;
 
-    for child in node.children() {
-        render_tree(cache, canvas, resources, child)?;
+        for child in node.children() {
+            render_tree(cache, canvas, resources, child, cull)?;
+        }
     }
 
     Ok(())
@@ -145,16 +151,13 @@ pub fn render_tree(
 
 pub fn render_node(
     cache: &mut Cache,
-    canvas: &mut Canvas,
+    canvas: &mut sk::Canvas,
     resources: &Resources,
     node: &ResolvedNode,
 ) -> Result<(), Error> {
     match node {
         ResolvedNode::Text {
-            fill,
-            bottom_left,
-            blob,
-            ..
+            fill, rect, blob, ..
         } => {
             if let Paint::Blur { .. } = fill {
                 panic!("text does not support blur paint");
@@ -163,7 +166,7 @@ pub fn render_node(
             if let Some(blob) = blob {
                 canvas.draw_text_blob(
                     blob,
-                    convert_point(*bottom_left),
+                    convert_point(rect.origin),
                     &convert_paint(fill, node.rect(), None)?,
                 );
             }

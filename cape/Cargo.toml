@@ -20,11 +20,11 @@ image = "0.23"
 font-kit = "0.10"
 thiserror = "1.0"
 topo = "0.13"
+ordered-float = "2.1"
 skulpin = { version = "0.11", default-features = false, features = [
     "skulpin_winit",
-    "skia_complete",
-    "winit-23",
+    "skia_shaper",
+    "winit-24",
 ], optional = true }
-winit = "0.23"
-skia-safe = { version = "0.36", features = ["shaper"] }
+winit = "0.24"
 cape-macro = { path = "../cape-macro" }

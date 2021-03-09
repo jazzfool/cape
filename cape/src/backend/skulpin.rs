@@ -2,6 +2,7 @@ use crate::{
     backend::skia::{render_list, Cache as SkiaCache},
     id::Id,
     node::{Interaction, MouseButton, Node, Paint, ResolvedNode, Resources},
+    rect,
     state::{call_on_lifecycles, call_on_renders, use_event},
     Color, Point2, Size2,
 };
@@ -28,6 +29,8 @@ pub struct WindowInfo {
 pub fn run(
     mut f: impl FnMut(&WindowInfo, &mut Resources) -> Window + 'static,
 ) -> Result<(), Error> {
+    skulpin::skia_safe::icu::init();
+
     let event_loop = winit::event_loop::EventLoop::new();
 
     let logical_size = winit::dpi::LogicalSize::new(900., 600.);
@@ -42,6 +45,7 @@ pub fn run(
     let mut renderer = skulpin::RendererBuilder::new()
         .use_vulkan_debug_layer(false)
         .coordinate_system(skulpin::CoordinateSystem::Logical)
+        .prefer_discrete_gpu()
         .prefer_mailbox_present_mode()
         .build(&window)?;
 
@@ -51,6 +55,7 @@ pub fn run(
         fonts: Default::default(),
         fallback_text_size: 13.,
         fallback_text_fill: Paint::Solid(Color::new(1., 1., 1., 1.)),
+        shaper_cache: Default::default(),
     };
 
     let mut scale_factor = winit_window.scale_factor();
@@ -196,17 +201,23 @@ pub fn run(
             }
             winit::event::Event::RedrawRequested(_window_id) => {
                 let latest_nodes = &mut latest_nodes;
+
                 renderer
                     .draw(&window, |canvas, _coordinate_system_helper| {
                         let w = f(&WindowInfo { size }, &mut resources);
-                        if let Some(mut node) =
-                            w.body.resolve(&resources).expect("failed to resolve node")
-                        {
+
+                        let resolved = w
+                            .body
+                            .resolve(&mut resources)
+                            .expect("failed to resolve node");
+
+                        if let Some(mut node) = resolved {
                             call_on_lifecycles(&resources);
 
                             node.perform_layout();
                             node.invoke_captures();
-                            *latest_nodes = Some(node.flatten());
+                            *latest_nodes =
+                                Some(node.flatten(&rect(0., 0., size.width, size.height)));
 
                             canvas.clear(skulpin::skia_safe::Color::from_argb(
                                 (w.background.alpha * 255.) as _,
@@ -220,11 +231,13 @@ pub fn run(
                                 canvas,
                                 &resources,
                                 latest_nodes.as_ref().unwrap(),
+                                &rect(0., 0., size.width, size.height),
                             )
                             .expect("failed to render using skia");
                         }
                     })
                     .expect("failed to render using vulkan");
+
                 if let Some(ResolvedNode::Interact { id, .. }) = focus_node.take() {
                     focus_node = find_interact(id, latest_nodes.as_ref().unwrap()).cloned();
                 }

@@ -171,6 +171,9 @@ fn counter() -> impl IntoNode {
                                 ),
                             StackItem {
                                 wh_offset: Some(size2(400., 400.)),
+                                xy: point2(0.5, 0.),
+                                xy_anchor: point2(0.5, 0.),
+                                xy_offset: point2(0., 75.),
                                 ..StackItem::center()
                             },
                         ),
@@ -180,6 +183,24 @@ fn counter() -> impl IntoNode {
             }),
             StackItem::fill(),
         )
+}
+
+#[ui]
+fn test() -> impl IntoNode {
+    let count = use_state(|| 0);
+
+    column()
+        .child(
+            button()
+                .child(format!("+100 ({})", count.get()))
+                .on_click(move |_: &_| count.set(count.get() + 100)),
+        )
+        .child(
+            button()
+                .child("-100")
+                .on_click(move |_: &_| count.set(count.get() - 100)),
+        )
+        .children((0..count.get()).map(|i| format!("[{}]", i)).collect())
 }
 
 #[ui]
@@ -198,7 +219,7 @@ fn window(info: &WindowInfo, resources: &mut Resources) -> Window {
         body: stack()
             .width(info.size.width)
             .height(info.size.height)
-            .child_item(counter(), StackItem::fill())
+            .child_item(test(), StackItem::fill())
             .into_node(),
         background: air::BACKGROUND_COLOR,
     }
