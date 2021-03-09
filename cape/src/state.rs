@@ -1,8 +1,8 @@
 use crate::node::Resources;
+use fxhash::FxHashMap;
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
-    collections::HashMap,
     hash::{Hash, Hasher},
     marker::PhantomData,
 };
@@ -29,12 +29,12 @@ impl EventListener {
 }
 
 thread_local! {
-    static STATE_STORE: RefCell<HashMap<(TypeId, StoreId), StateValue>> = RefCell::new(HashMap::new());
-    static CACHE_STORE: RefCell<HashMap<(TypeId, StoreId), RefCell<Cached>>> = RefCell::new(HashMap::new());
-    static STATIC_STORE: RefCell<HashMap<TypeId, StateValue>> = RefCell::new(HashMap::new());
-    static ON_RENDER_STORE: RefCell<HashMap<StoreId, Box<dyn FnMut(&Resources)>>> = RefCell::new(HashMap::new());
-    static ON_LIFECYCLE_STORE: RefCell<HashMap<StoreId, (bool, bool, Box<dyn FnMut(Lifecycle, &Resources)>)>> = RefCell::new(HashMap::new());
-    static EVENT_STORE: RefCell<HashMap<TypeId, Box<dyn Any>>> = RefCell::new(HashMap::new());
+    static STATE_STORE: RefCell<FxHashMap<(TypeId, StoreId), StateValue>> = RefCell::new(Default::default());
+    static CACHE_STORE: RefCell<FxHashMap<(TypeId, StoreId), RefCell<Cached>>> = RefCell::new(Default::default());
+    static STATIC_STORE: RefCell<FxHashMap<TypeId, StateValue>> = RefCell::new(Default::default());
+    static ON_RENDER_STORE: RefCell<FxHashMap<StoreId, Box<dyn FnMut(&Resources)>>> = RefCell::new(Default::default());
+    static ON_LIFECYCLE_STORE: RefCell<FxHashMap<StoreId, (bool, bool, Box<dyn FnMut(Lifecycle, &Resources)>)>> = RefCell::new(Default::default());
+    static EVENT_STORE: RefCell<FxHashMap<TypeId, Box<dyn Any>>> = RefCell::new(Default::default());
 }
 
 struct Cached {

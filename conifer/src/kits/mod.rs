@@ -2,7 +2,7 @@ pub mod air;
 
 use cape::state::Accessor;
 
-pub type Palette = std::collections::HashMap<String, cape::node::Paint>;
+pub type Palette = fxhash::FxHashMap<String, cape::node::Paint>;
 
 pub enum Paint {
     Palette(String),

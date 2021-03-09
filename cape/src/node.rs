@@ -1,7 +1,8 @@
 use crate::{id::Id, size2, Color, Error, Image, Point2, Rect, Size2};
+use fxhash::FxHashMap;
 use ordered_float::OrderedFloat;
 use skulpin::skia_safe as sk;
-use std::{collections::HashMap, rc::Rc, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
@@ -77,6 +78,7 @@ pub enum Node {
         draw_fn: Rc<dyn Fn(Rect, &mut sk::Canvas)>,
         z_order: ZOrder,
     },
+    Resolved(ResolvedNode),
 }
 
 impl Node {
@@ -148,7 +150,12 @@ impl Node {
             } => {
                 let size = size.unwrap_or_else(|| resources.fallback_text_size);
                 let font_data = Rc::clone(&resources.fonts[font]);
-                let fnt = sk::Font::new(&font_data.sk, size);
+
+                let fnt = resources
+                    .font_cache
+                    .entry((font.clone(), OrderedFloat(size)))
+                    .or_insert_with(|| Rc::new(sk::Font::new(&font_data.sk, size)))
+                    .clone();
 
                 let (blob, bounds) = if !text.is_empty() {
                     let (blob, bounds) = resources
@@ -188,7 +195,7 @@ impl Node {
                     text: text.clone(),
                     font: font.clone(),
                     font_data,
-                    sk_font: Rc::new(fnt),
+                    sk_font: fnt,
                     blob,
                     size,
                     fill: fill
@@ -222,6 +229,7 @@ impl Node {
                 draw_fn: Rc::clone(draw_fn),
                 z_order: *z_order,
             })),
+            Node::Resolved(resolved) => Ok(Some(resolved.clone())),
         }
     }
 
@@ -508,7 +516,7 @@ impl ResolvedNode {
             | ResolvedNode::Rectangle { rect, .. }
             | ResolvedNode::Text { rect, .. }
             | ResolvedNode::Draw { rect, .. } => rect.origin,
-            _ => panic!("null resolved node"),
+            _ => crate::point2(0., 0.),
         }
     }
 
@@ -521,7 +529,7 @@ impl ResolvedNode {
             | ResolvedNode::Rectangle { rect, .. }
             | ResolvedNode::Text { rect, .. }
             | ResolvedNode::Draw { rect, .. } => rect.size,
-            _ => panic!("null resolved node"),
+            _ => size2(0., 0.),
         }
     }
 
@@ -541,7 +549,7 @@ impl ResolvedNode {
             | ResolvedNode::Rectangle { rect, .. }
             | ResolvedNode::Draw { rect, .. } => *rect = r,
             ResolvedNode::Text { rect, .. } => rect.origin = r.origin,
-            _ => panic!("null resolved node"),
+            _ => {}
         }
     }
 
@@ -567,7 +575,7 @@ impl ResolvedNode {
             | ResolvedNode::Text { z_order, .. }
             | ResolvedNode::Rectangle { z_order, .. }
             | ResolvedNode::Draw { z_order, .. } => *z_order,
-            _ => panic!("null resolved node"),
+            _ => Default::default(),
         }
     }
 
@@ -579,7 +587,7 @@ impl ResolvedNode {
             | ResolvedNode::Text { z_order, .. }
             | ResolvedNode::Rectangle { z_order, .. }
             | ResolvedNode::Draw { z_order, .. } => Some(z_order),
-            _ => panic!("null resolved node"),
+            _ => None,
         }
     }
 
@@ -721,10 +729,11 @@ impl Font {
 
 /// Stores resources that will be used throughout the UI (e.g. fonts).
 pub struct Resources {
-    pub fonts: HashMap<String, Rc<Font>>,
+    pub fonts: FxHashMap<String, Rc<Font>>,
     pub fallback_text_size: f32,
     pub fallback_text_fill: Paint,
-    pub shaper_cache: HashMap<(String, String, OrderedFloat<f32>), (sk::TextBlob, Size2)>,
+    pub shaper_cache: FxHashMap<(String, String, OrderedFloat<f32>), (sk::TextBlob, Size2)>,
+    pub font_cache: FxHashMap<(String, OrderedFloat<f32>), Rc<sk::Font>>,
 }
 
 impl Resources {

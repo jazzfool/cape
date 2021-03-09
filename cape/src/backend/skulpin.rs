@@ -45,7 +45,6 @@ pub fn run(
     let mut renderer = skulpin::RendererBuilder::new()
         .use_vulkan_debug_layer(false)
         .coordinate_system(skulpin::CoordinateSystem::Logical)
-        .prefer_discrete_gpu()
         .prefer_mailbox_present_mode()
         .build(&window)?;
 
@@ -56,6 +55,7 @@ pub fn run(
         fallback_text_size: 13.,
         fallback_text_fill: Paint::Solid(Color::new(1., 1., 1., 1.)),
         shaper_cache: Default::default(),
+        font_cache: Default::default(),
     };
 
     let mut scale_factor = winit_window.scale_factor();
@@ -67,6 +67,8 @@ pub fn run(
     let mut mouse_pos = Point2::default();
     let mut latest_nodes: Option<Vec<ResolvedNode>> = None;
     let mut focus_node: Option<ResolvedNode> = None;
+
+    let mut curr_node = ResolvedNode::Null;
 
     event_loop.run(move |event, _window_target, control_flow| {
         let out_evt = use_event();
@@ -206,35 +208,32 @@ pub fn run(
                     .draw(&window, |canvas, _coordinate_system_helper| {
                         let w = f(&WindowInfo { size }, &mut resources);
 
-                        let resolved = w
-                            .body
-                            .resolve(&mut resources)
-                            .expect("failed to resolve node");
+                        let new_node = w.body;
 
-                        if let Some(mut node) = resolved {
-                            call_on_lifecycles(&resources);
+                        curr_node = diff_resolve(&mut resources, new_node, curr_node.clone());
 
-                            node.perform_layout();
-                            node.invoke_captures();
-                            *latest_nodes =
-                                Some(node.flatten(&rect(0., 0., size.width, size.height)));
+                        call_on_lifecycles(&resources);
 
-                            canvas.clear(skulpin::skia_safe::Color::from_argb(
-                                (w.background.alpha * 255.) as _,
-                                (w.background.red * 255.) as _,
-                                (w.background.green * 255.) as _,
-                                (w.background.blue * 255.) as _,
-                            ));
+                        curr_node.perform_layout();
+                        curr_node.invoke_captures();
+                        *latest_nodes =
+                            Some(curr_node.flatten(&rect(0., 0., size.width, size.height)));
 
-                            render_list(
-                                &mut skia_cache,
-                                canvas,
-                                &resources,
-                                latest_nodes.as_ref().unwrap(),
-                                &rect(0., 0., size.width, size.height),
-                            )
-                            .expect("failed to render using skia");
-                        }
+                        canvas.clear(skulpin::skia_safe::Color::from_argb(
+                            (w.background.alpha * 255.) as _,
+                            (w.background.red * 255.) as _,
+                            (w.background.green * 255.) as _,
+                            (w.background.blue * 255.) as _,
+                        ));
+
+                        render_list(
+                            &mut skia_cache,
+                            canvas,
+                            &resources,
+                            latest_nodes.as_ref().unwrap(),
+                            &rect(0., 0., size.width, size.height),
+                        )
+                        .expect("failed to render using skia");
                     })
                     .expect("failed to render using vulkan");
 
@@ -288,4 +287,114 @@ fn find_interact(interact_id: Id, nodes: &[ResolvedNode]) -> Option<&ResolvedNod
         }
     }
     None
+}
+
+fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> ResolvedNode {
+    match (new, old) {
+        (Node::Null, ResolvedNode::Null) => Ok(Some(ResolvedNode::Null)),
+        (
+            Node::Interact {
+                child: new_child,
+                callback,
+                id,
+                passthrough,
+                z_order,
+            },
+            ResolvedNode::Interact { child, .. },
+        ) => {
+            let child = Box::new(diff_resolve(resources, *new_child, *child));
+            Ok(Some(ResolvedNode::Interact {
+                rect: crate::Rect::new(Default::default(), child.size()),
+                child,
+                callback,
+                id,
+                passthrough,
+                z_order,
+            }))
+        }
+        (
+            Node::Text {
+                text: new_text,
+                font: new_font,
+                size: new_size,
+                fill,
+                z_order,
+            },
+            ResolvedNode::Text {
+                text,
+                font,
+                size,
+                font_data,
+                sk_font,
+                blob,
+                rect,
+                ..
+            },
+        ) => {
+            let new_size = new_size.unwrap_or(resources.fallback_text_size);
+
+            if new_text != text || new_font != font || (new_size - size).abs() > std::f32::EPSILON {
+                Node::Text {
+                    text: new_text,
+                    font: new_font,
+                    size: Some(new_size),
+                    fill,
+                    z_order,
+                }
+                .resolve(resources)
+            } else {
+                Ok(Some(ResolvedNode::Text {
+                    text: new_text,
+                    font: new_font,
+                    font_data,
+                    sk_font,
+                    blob,
+                    size: new_size,
+                    fill: fill.unwrap_or_else(|| resources.fallback_text_fill.clone()),
+                    rect,
+                    z_order,
+                }))
+            }
+        }
+        (
+            Node::Layout {
+                layout,
+                children: new_children,
+                z_order,
+            },
+            ResolvedNode::Layout { mut children, .. },
+        ) => {
+            if children.len() < new_children.len() {
+                children.append(&mut vec![
+                    ResolvedNode::Null;
+                    new_children.len() - children.len()
+                ]);
+            } else {
+                children.truncate(new_children.len());
+            }
+
+            let children = new_children
+                .into_iter()
+                .zip(children.into_iter())
+                .map(|(new_child, old_child)| diff_resolve(resources, new_child, old_child))
+                .collect::<Vec<_>>();
+
+            let size = layout.size(
+                &children
+                    .iter()
+                    .map(|child| child.size())
+                    .collect::<Vec<_>>(),
+            );
+
+            Ok(Some(ResolvedNode::Layout {
+                layout,
+                children,
+                rect: crate::Rect::new(Default::default(), size),
+                z_order,
+            }))
+        }
+        (new, _) => new.resolve(resources),
+    }
+    .unwrap()
+    .unwrap()
 }
