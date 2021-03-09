@@ -361,7 +361,6 @@ impl IntoNode for RowBuilder {
                 spacing: self.spacing,
             }),
             children: self.children,
-            z_order: Default::default(),
         }
     }
 }
@@ -424,7 +423,6 @@ impl IntoNode for ColumnBuilder {
                 spacing: self.spacing,
             }),
             children: self.children,
-            z_order: Default::default(),
         }
     }
 }
@@ -495,7 +493,6 @@ impl IntoNode for StackBuilder {
                 height: self.height,
             }),
             children: self.children,
-            z_order: Default::default(),
         }
     }
 }
@@ -637,7 +634,6 @@ impl IntoNode for ContainerBuilder {
                 margin: self.margin,
             }),
             children: self.children,
-            z_order: Default::default(),
         }
     }
 }

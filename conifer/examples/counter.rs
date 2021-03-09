@@ -35,7 +35,7 @@ fn test() -> impl IntoNode {
             },
             false,
         ))
-        .children((0..100000).map(|i| format!("[{}]", i)).collect())
+        .children((0..10000).map(|i| format!("[{}]", i)).collect())
 }
 
 #[ui]

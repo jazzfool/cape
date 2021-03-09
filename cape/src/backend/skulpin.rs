@@ -298,7 +298,6 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
                 callback,
                 id,
                 passthrough,
-                z_order,
             },
             ResolvedNode::Interact { child, .. },
         ) => {
@@ -309,7 +308,6 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
                 callback,
                 id,
                 passthrough,
-                z_order,
             }))
         }
         (
@@ -318,7 +316,6 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
                 font: new_font,
                 size: new_size,
                 fill,
-                z_order,
             },
             ResolvedNode::Text {
                 text,
@@ -339,7 +336,6 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
                     font: new_font,
                     size: Some(new_size),
                     fill,
-                    z_order,
                 }
                 .resolve(resources)
             } else {
@@ -352,7 +348,6 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
                     size: new_size,
                     fill: fill.unwrap_or_else(|| resources.fallback_text_fill.clone()),
                     rect,
-                    z_order,
                 }))
             }
         }
@@ -360,7 +355,6 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
             Node::Layout {
                 layout,
                 children: new_children,
-                z_order,
             },
             ResolvedNode::Layout { mut children, .. },
         ) => {
@@ -390,7 +384,6 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
                 layout,
                 children,
                 rect: crate::Rect::new(Default::default(), size),
-                z_order,
             }))
         }
         (new, _) => new.resolve(resources),
