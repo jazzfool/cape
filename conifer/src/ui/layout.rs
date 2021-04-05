@@ -319,7 +319,8 @@ pub trait LayoutBuilder: Sized {
     }
 }
 
-pub struct RowBuilder {
+#[derive(Default)]
+pub struct Row {
     children: Vec<Node>,
     items: Vec<RowItem>,
 
@@ -327,7 +328,11 @@ pub struct RowBuilder {
     spacing: f32,
 }
 
-impl RowBuilder {
+impl Row {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
@@ -339,7 +344,7 @@ impl RowBuilder {
     }
 }
 
-impl LayoutBuilder for RowBuilder {
+impl LayoutBuilder for Row {
     type Item = RowItem;
 
     fn get_children(&mut self) -> &mut Vec<Node> {
@@ -351,7 +356,7 @@ impl LayoutBuilder for RowBuilder {
     }
 }
 
-impl IntoNode for RowBuilder {
+impl IntoNode for Row {
     #[ui]
     fn into_node(self) -> Node {
         Node::Layout {
@@ -372,16 +377,8 @@ pub struct RowItem {
     pub fill: bool,
 }
 
-pub fn row() -> RowBuilder {
-    RowBuilder {
-        children: Vec::new(),
-        items: Vec::new(),
-        margin: Sides2::zero(),
-        spacing: 0.,
-    }
-}
-
-pub struct ColumnBuilder {
+#[derive(Default)]
+pub struct Column {
     children: Vec<Node>,
     items: Vec<ColumnItem>,
 
@@ -389,7 +386,11 @@ pub struct ColumnBuilder {
     spacing: f32,
 }
 
-impl ColumnBuilder {
+impl Column {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
@@ -401,7 +402,7 @@ impl ColumnBuilder {
     }
 }
 
-impl LayoutBuilder for ColumnBuilder {
+impl LayoutBuilder for Column {
     type Item = ColumnItem;
 
     fn get_children(&mut self) -> &mut Vec<Node> {
@@ -413,7 +414,7 @@ impl LayoutBuilder for ColumnBuilder {
     }
 }
 
-impl IntoNode for ColumnBuilder {
+impl IntoNode for Column {
     #[ui]
     fn into_node(self) -> Node {
         Node::Layout {
@@ -434,8 +435,8 @@ pub struct ColumnItem {
     pub fill: bool,
 }
 
-pub fn column() -> ColumnBuilder {
-    ColumnBuilder {
+pub fn column() -> Column {
+    Column {
         children: Vec::new(),
         items: Vec::new(),
 
@@ -444,7 +445,8 @@ pub fn column() -> ColumnBuilder {
     }
 }
 
-pub struct StackBuilder {
+#[derive(Default)]
+pub struct Stack {
     children: Vec<Node>,
     items: Vec<StackItem>,
 
@@ -453,7 +455,11 @@ pub struct StackBuilder {
     height: Option<f32>,
 }
 
-impl StackBuilder {
+impl Stack {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
@@ -470,7 +476,7 @@ impl StackBuilder {
     }
 }
 
-impl LayoutBuilder for StackBuilder {
+impl LayoutBuilder for Stack {
     type Item = StackItem;
 
     fn get_children(&mut self) -> &mut Vec<Node> {
@@ -482,7 +488,7 @@ impl LayoutBuilder for StackBuilder {
     }
 }
 
-impl IntoNode for StackBuilder {
+impl IntoNode for Stack {
     #[ui]
     fn into_node(self) -> Node {
         Node::Layout {
@@ -583,34 +589,50 @@ impl StackItem {
             ..Default::default()
         }
     }
-}
 
-pub fn stack() -> StackBuilder {
-    StackBuilder {
-        children: Vec::new(),
-        items: Vec::new(),
+    pub fn inflate(sides: Sides2) -> Self {
+        StackItem {
+            xy: point2(0., 0.),
+            xy_offset: point2(-sides.left, -sides.top),
+            xy_anchor: point2(0., 0.),
+            width: Some(1.),
+            height: Some(1.),
+            wh_offset: Some(size2(sides.horizontal(), sides.vertical())),
+        }
+    }
 
-        margin: Sides2::zero(),
-        width: None,
-        height: None,
+    pub fn deflate(sides: Sides2) -> Self {
+        StackItem {
+            xy: point2(0., 0.),
+            xy_offset: point2(sides.left, sides.top),
+            xy_anchor: point2(0., 0.),
+            width: Some(1.),
+            height: Some(1.),
+            wh_offset: Some(size2(-sides.horizontal(), -sides.vertical())),
+        }
     }
 }
 
-pub struct ContainerBuilder {
+#[derive(Default)]
+pub struct Container {
     children: Vec<Node>,
     items: Vec<()>,
 
     margin: Sides2,
 }
 
-impl ContainerBuilder {
+impl Container {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn margin(mut self, margin: Sides2) -> Self {
         self.margin = margin;
         self
     }
 }
 
-impl LayoutBuilder for ContainerBuilder {
+impl LayoutBuilder for Container {
     type Item = ();
 
     fn max_children() -> usize {
@@ -626,7 +648,7 @@ impl LayoutBuilder for ContainerBuilder {
     }
 }
 
-impl IntoNode for ContainerBuilder {
+impl IntoNode for Container {
     #[ui]
     fn into_node(self) -> Node {
         Node::Layout {
@@ -635,14 +657,5 @@ impl IntoNode for ContainerBuilder {
             }),
             children: self.children,
         }
-    }
-}
-
-pub fn container() -> ContainerBuilder {
-    ContainerBuilder {
-        children: Vec::new(),
-        items: Vec::new(),
-
-        margin: Sides2::zero(),
     }
 }

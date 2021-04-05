@@ -1,4 +1,4 @@
-use crate::{stack, LayoutBuilder, StackItem};
+use crate::{LayoutBuilder, Stack, StackItem};
 use cape::node::{rectangle, IntoNode, Paint};
 use cape::{rgb, size2};
 
@@ -33,7 +33,7 @@ pub fn progress_bar(
 ) -> impl IntoNode {
     let style = style.into().unwrap_or_else(ProgressBarStyle::default_dark);
 
-    stack()
+    Stack::new()
         .width(width)
         .height(style.height)
         .child_item(

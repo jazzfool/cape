@@ -1,5 +1,8 @@
-use crate::node::{Paint, ResolvedNode, Resources};
-use crate::{Color, Point2, Rect, ToSkia};
+use crate::{
+    cx,
+    node::{Paint, ResolvedNode},
+    Point2, Rect, ToSkia,
+};
 use skulpin::skia_safe as sk;
 use thiserror::Error;
 
@@ -13,15 +16,6 @@ pub enum Error {
     PaintConversion,
     #[error("error rendering image")]
     Image,
-}
-
-#[derive(Default)]
-pub struct Cache {}
-
-impl Cache {
-    pub fn new() -> Self {
-        Default::default()
-    }
 }
 
 fn rect_offset(rect: Rect, offset: Point2) -> Point2 {
@@ -117,32 +111,30 @@ fn convert_point(point: Point2) -> sk::Point {
 }
 
 pub fn render_list(
-    cache: &mut Cache,
+    cx: &mut cx::Cx,
     canvas: &mut sk::Canvas,
-    resources: &Resources,
     list: &[ResolvedNode],
     cull: &Rect,
 ) -> Result<(), Error> {
     for node in list {
         if cull.intersects(&node.rect()) {
-            render_node(cache, canvas, resources, node)?;
+            render_node(cx, canvas, node)?;
         }
     }
     Ok(())
 }
 
 pub fn render_tree(
-    cache: &mut Cache,
+    cx: &mut cx::Cx,
     canvas: &mut sk::Canvas,
-    resources: &Resources,
     node: &ResolvedNode,
     cull: &Rect,
 ) -> Result<(), Error> {
     if cull.intersects(&node.rect()) {
-        render_node(cache, canvas, resources, node)?;
+        render_node(cx, canvas, node)?;
 
         for child in node.children() {
-            render_tree(cache, canvas, resources, child, cull)?;
+            render_tree(cx, canvas, child, cull)?;
         }
     }
 
@@ -150,9 +142,8 @@ pub fn render_tree(
 }
 
 pub fn render_node(
-    cache: &mut Cache,
+    cx: &mut cx::Cx,
     canvas: &mut sk::Canvas,
-    resources: &Resources,
     node: &ResolvedNode,
 ) -> Result<(), Error> {
     match node {
@@ -239,7 +230,7 @@ pub fn render_node(
                 );
             }
         }
-        ResolvedNode::Draw { rect, draw_fn, .. } => draw_fn(*rect, canvas),
+        ResolvedNode::Draw { rect, draw_fn, .. } => draw_fn(*rect, cx, canvas),
         _ => {}
     }
 

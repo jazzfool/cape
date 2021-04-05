@@ -57,7 +57,7 @@ impl cape::node::IntoNode for DecoratedNode {
         let core = self.core;
         let padding = self.padding;
 
-        crate::stack()
+        crate::Stack::new()
             .children_items(
                 self.stack
                     .into_iter()
@@ -65,7 +65,10 @@ impl cape::node::IntoNode for DecoratedNode {
                     .map(|(i, (node, item))| {
                         if i == core {
                             (
-                                crate::container().margin(padding).child(node).into_node(),
+                                crate::Container::new()
+                                    .margin(padding)
+                                    .child(node)
+                                    .into_node(),
                                 item,
                             )
                         } else {

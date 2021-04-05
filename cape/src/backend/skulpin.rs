@@ -1,13 +1,17 @@
 use crate::{
-    backend::skia::{render_list, Cache as SkiaCache},
+    backend::skia::render_tree,
+    cx,
     id::Id,
     node::{Interaction, MouseButton, Node, Paint, ResolvedNode, Resources},
-    rect,
-    state::{call_on_lifecycles, call_on_renders, use_event},
-    Color, Point2, Size2,
+    Color, Point2, Rect, Size2,
 };
 use skulpin::winit;
+use std::{cmp::Ordering, rc::Rc};
 use thiserror::Error;
+use winit::{
+    event::{ElementState, Event, WindowEvent},
+    event_loop::ControlFlow,
+};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -26,8 +30,14 @@ pub struct WindowInfo {
     pub size: Size2,
 }
 
+#[derive(Clone)]
+struct InteractNode {
+    callback: Rc<dyn Fn(&mut cx::Cx, &Interaction)>,
+    id: Id,
+}
+
 pub fn run(
-    mut f: impl FnMut(&WindowInfo, &mut Resources) -> Window + 'static,
+    mut f: impl FnMut(&WindowInfo, &mut cx::Cx, &mut Resources) -> Window + 'static,
 ) -> Result<(), Error> {
     skulpin::skia_safe::icu::init();
 
@@ -48,15 +58,15 @@ pub fn run(
         .prefer_mailbox_present_mode()
         .build(&window)?;
 
-    let mut skia_cache = SkiaCache::default();
-
     let mut resources = Resources {
         fonts: Default::default(),
-        fallback_text_size: 13.,
+        fallback_text_size: 12.,
         fallback_text_fill: Paint::Solid(Color::new(1., 1., 1., 1.)),
         shaper_cache: Default::default(),
         font_cache: Default::default(),
     };
+
+    let mut cx = cx::Cx::new();
 
     let mut scale_factor = winit_window.scale_factor();
 
@@ -65,25 +75,25 @@ pub fn run(
 
     let mut modifiers = winit::event::ModifiersState::default();
     let mut mouse_pos = Point2::default();
-    let mut latest_nodes: Option<Vec<ResolvedNode>> = None;
-    let mut focus_node: Option<ResolvedNode> = None;
-
     let mut curr_node = ResolvedNode::Null;
 
-    event_loop.run(move |event, _window_target, control_flow| {
-        let out_evt = use_event();
-        let interact_evt = use_event();
+    let mut hovered_node: Option<InteractNode> = None;
+    let mut pressed_node: Option<InteractNode> = None;
+    let mut focused_node: Option<InteractNode> = None;
 
+    event_loop.run(move |event, _window_target, control_flow| {
         let window = skulpin::WinitWindow::new(&winit_window);
 
+        *control_flow = ControlFlow::Wait;
+
         match event {
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::CloseRequested,
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
                 ..
-            } => *control_flow = winit::event_loop::ControlFlow::Exit,
-            winit::event::Event::WindowEvent {
+            } => *control_flow = ControlFlow::Exit,
+            Event::WindowEvent {
                 event:
-                    winit::event::WindowEvent::ScaleFactorChanged {
+                    WindowEvent::ScaleFactorChanged {
                         scale_factor: sf,
                         ref new_inner_size,
                     },
@@ -94,130 +104,164 @@ pub fn run(
                 size.width = logical.width;
                 size.height = logical.height;
             }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::Resized(physical_size),
+            Event::WindowEvent {
+                event: WindowEvent::Resized(physical_size),
                 ..
             } => {
                 let logical = physical_size.to_logical(scale_factor);
                 size.width = logical.width;
                 size.height = logical.height;
             }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::ModifiersChanged(mods),
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved { position, .. },
                 ..
             } => {
-                modifiers = mods;
+                let logical = position.to_logical(scale_factor);
+                mouse_pos.x = logical.x;
+                mouse_pos.y = logical.y;
+
+                let prev_hovered = hovered_node.clone();
+
+                if let Some(ResolvedNode::Interact { callback, id, .. }) =
+                    node_at_point_tree(mouse_pos, &curr_node, None)
+                {
+                    hovered_node = Some(InteractNode {
+                        callback: Rc::clone(callback),
+                        id: *id,
+                    });
+                } else {
+                    hovered_node = None;
+                }
+
+                if !compare_interact(&prev_hovered, &hovered_node) {
+                    try_callback(
+                        &prev_hovered,
+                        &mut cx,
+                        &Interaction::CursorExit { pos: mouse_pos },
+                    );
+                    try_callback(
+                        &hovered_node,
+                        &mut cx,
+                        &Interaction::CursorEnter { pos: mouse_pos },
+                    );
+                }
+
+                try_callback(
+                    &hovered_node,
+                    &mut cx,
+                    &Interaction::CursorMove { pos: mouse_pos },
+                );
             }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::CursorMoved { position, .. },
-                ..
-            } => {
-                let position = position.to_logical(winit_window.scale_factor());
-                mouse_pos = Point2::new(position.x, position.y);
-            }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::MouseInput { button, state, .. },
+            Event::WindowEvent {
+                event: WindowEvent::MouseInput { button, state, .. },
                 ..
             } => {
                 let button = match button {
                     winit::event::MouseButton::Left => MouseButton::Left,
                     winit::event::MouseButton::Middle => MouseButton::Middle,
                     winit::event::MouseButton::Right => MouseButton::Right,
-                    _ => MouseButton::Left,
+                    _ => return,
                 };
 
                 let event = match state {
-                    winit::event::ElementState::Pressed => Interaction::MouseDown {
+                    ElementState::Pressed => Interaction::MouseDown {
                         button,
-                        pos: mouse_pos,
                         modifiers,
+                        pos: mouse_pos,
                     },
-                    winit::event::ElementState::Released => Interaction::MouseUp {
+                    ElementState::Released => Interaction::MouseUp {
                         button,
-                        pos: mouse_pos,
                         modifiers,
+                        pos: mouse_pos,
                     },
                 };
 
-                if let Some(node) = latest_nodes
-                    .as_ref()
-                    .and_then(|nodes| node_at_point(mouse_pos, &nodes, &event))
-                {
-                    let old_node = focus_node.take().and_then(|node| {
-                        if let ResolvedNode::Interact { callback, id, .. } = node {
-                            Some((callback, id))
-                        } else {
-                            None
+                let prev_focus = focused_node.clone();
+
+                match state {
+                    ElementState::Pressed if pressed_node.is_none() => {
+                        if let Some(node) = &hovered_node {
+                            pressed_node = Some(node.clone());
+                            focused_node = Some(node.clone());
+                            (*node.callback)(&mut cx, &event);
                         }
-                    });
-
-                    if let ResolvedNode::Interact { callback, id, .. } = node {
-                        focus_node = Some(node.clone());
-
-                        if let Some((old_callback, old_id)) = old_node {
-                            if old_id != *id {
-                                old_callback(&Interaction::LoseFocus);
-                                callback(&Interaction::GainFocus);
-                            }
-                        }
-
-                        (*callback)(&event);
                     }
-                } else if let Some(ResolvedNode::Interact { callback, .. }) = focus_node.take() {
-                    callback(&Interaction::LoseFocus);
+                    ElementState::Pressed => {
+                        if let Some(node) = &pressed_node {
+                            (*node.callback)(&mut cx, &event);
+                        }
+                    }
+                    ElementState::Released => {
+                        if let Some(node) = pressed_node.clone() {
+                            // FIXME(jazzfool): only make pressed_none = None if *all* mouse buttons have been released
+                            pressed_node = None;
+                            (*node.callback)(&mut cx, &event);
+                        }
+                    }
+                }
+
+                if hovered_node.is_none() {
+                    focused_node = None;
+                }
+
+                if !compare_interact(&prev_focus, &focused_node) {
+                    try_callback(&prev_focus, &mut cx, &Interaction::LoseFocus);
+                    try_callback(&focused_node, &mut cx, &Interaction::GainFocus);
                 }
             }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::ReceivedCharacter(character),
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { input, .. },
                 ..
             } => {
-                if let Some(ResolvedNode::Interact { callback, .. }) = &focus_node {
-                    callback(&Interaction::ReceiveCharacter { character });
-                }
-            }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::KeyboardInput { input, .. },
-                ..
-            } => {
-                if let Some(key_code) = input.virtual_keycode {
-                    let event = match input.state {
-                        winit::event::ElementState::Pressed => Interaction::KeyDown {
-                            key_code,
-                            modifiers,
-                        },
-                        winit::event::ElementState::Released => Interaction::KeyUp {
-                            key_code,
-                            modifiers,
-                        },
-                    };
-
-                    interact_evt.emit(&event);
-
-                    if let Some(ResolvedNode::Interact { callback, .. }) = &focus_node {
-                        callback(&event);
+                if let Some(node) = &focused_node {
+                    if let Some(keycode) = input.virtual_keycode {
+                        (*node.callback)(
+                            &mut cx,
+                            &match input.state {
+                                ElementState::Pressed => Interaction::KeyDown {
+                                    key_code: keycode,
+                                    modifiers,
+                                },
+                                ElementState::Released => Interaction::KeyUp {
+                                    key_code: keycode,
+                                    modifiers,
+                                },
+                            },
+                        );
                     }
                 }
             }
-            winit::event::Event::MainEventsCleared => {
+            Event::WindowEvent {
+                event: WindowEvent::ReceivedCharacter(character),
+                ..
+            } => {
+                if let Some(node) = &focused_node {
+                    (*node.callback)(&mut cx, &Interaction::ReceiveCharacter { character });
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::ModifiersChanged(mods),
+                ..
+            } => {
+                modifiers = mods;
+            }
+            Event::MainEventsCleared => {
                 winit_window.request_redraw();
             }
-            winit::event::Event::RedrawRequested(_window_id) => {
-                let latest_nodes = &mut latest_nodes;
-
+            Event::RedrawRequested(_window_id) => {
                 renderer
                     .draw(&window, |canvas, _coordinate_system_helper| {
-                        let w = f(&WindowInfo { size }, &mut resources);
+                        let w = f(&WindowInfo { size }, &mut cx, &mut resources);
 
-                        let new_node = w.body;
-
-                        curr_node = diff_resolve(&mut resources, new_node, curr_node.clone());
-
-                        call_on_lifecycles(&resources);
-
-                        curr_node.perform_layout();
-                        curr_node.invoke_captures();
-                        *latest_nodes =
-                            Some(curr_node.flatten(&rect(0., 0., size.width, size.height)));
+                        curr_node = diff_resolve(
+                            &mut resources,
+                            w.body,
+                            std::mem::replace(&mut curr_node, ResolvedNode::Null),
+                            &Rect::new(Point2::new(0., 0.), size),
+                            &mut hovered_node,
+                            &mut pressed_node,
+                            &mut focused_node,
+                        );
 
                         canvas.clear(skulpin::skia_safe::Color::from_argb(
                             (w.background.alpha * 255.) as _,
@@ -226,70 +270,77 @@ pub fn run(
                             (w.background.blue * 255.) as _,
                         ));
 
-                        render_list(
-                            &mut skia_cache,
+                        curr_node.perform_layout();
+                        render_tree(
+                            &mut cx,
                             canvas,
-                            &resources,
-                            latest_nodes.as_ref().unwrap(),
-                            &rect(0., 0., size.width, size.height),
+                            &curr_node,
+                            &Rect::new(Point2::new(0., 0.), size),
                         )
-                        .expect("failed to render using skia");
+                        .unwrap();
                     })
                     .expect("failed to render using vulkan");
-
-                if let Some(ResolvedNode::Interact { id, .. }) = focus_node.take() {
-                    focus_node = find_interact(id, latest_nodes.as_ref().unwrap()).cloned();
-                }
             }
             _ => {}
         }
-
-        if let Some(event) = event.to_static() {
-            out_evt.emit(&event);
-        }
-
-        call_on_renders(&resources);
     });
 }
 
-fn node_at_point<'a>(
+fn compare_interact(a: &Option<InteractNode>, b: &Option<InteractNode>) -> bool {
+    match (a, b) {
+        (Some(_), None) | (None, Some(_)) => false,
+        (None, None) => true,
+        (Some(a), Some(b)) => a.id == b.id,
+    }
+}
+
+fn try_callback(node: &Option<InteractNode>, cx: &mut cx::Cx, event: &Interaction) {
+    if let Some(node) = node {
+        (*node.callback)(cx, event);
+    }
+}
+
+fn try_set_callback(node: &mut Option<InteractNode>, cb: &Rc<dyn Fn(&mut cx::Cx, &Interaction)>) {
+    if let Some(node) = node {
+        node.callback = cb.clone();
+    }
+}
+
+fn node_at_point_tree<'a>(
     point: Point2,
-    nodes: &'a [ResolvedNode],
-    event: &'a Interaction,
+    node: &'a ResolvedNode,
+    mut last_interact: Option<&'a ResolvedNode>,
 ) -> Option<&'a ResolvedNode> {
-    for node in nodes.iter().rev() {
-        if let ResolvedNode::Interact {
-            rect,
-            passthrough,
-            callback,
-            ..
-        } = &node
-        {
-            if rect.contains(point) {
-                if *passthrough {
-                    (*callback)(event);
-                } else {
-                    return Some(node);
-                }
+    if node.rect().contains(point) {
+        if node.is_interact() {
+            last_interact = Some(node);
+        }
+
+        for child in node.children() {
+            if let node @ Some(_) = node_at_point_tree(point, child, last_interact) {
+                return node;
             }
         }
-    }
 
-    None
-}
-
-fn find_interact(interact_id: Id, nodes: &[ResolvedNode]) -> Option<&ResolvedNode> {
-    for node in nodes {
-        if let ResolvedNode::Interact { id, .. } = node {
-            if *id == interact_id {
-                return Some(node);
-            }
+        if node.is_interact() {
+            Some(node)
+        } else {
+            last_interact
         }
+    } else {
+        last_interact
     }
-    None
 }
 
-fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> ResolvedNode {
+fn diff_resolve(
+    resources: &mut Resources,
+    new: Node,
+    old: ResolvedNode,
+    cull: &crate::Rect,
+    hovered: &mut Option<InteractNode>,
+    pressed: &mut Option<InteractNode>,
+    focused: &mut Option<InteractNode>,
+) -> ResolvedNode {
     match (new, old) {
         (Node::Null, ResolvedNode::Null) => Ok(Some(ResolvedNode::Null)),
         (
@@ -301,7 +352,39 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
             },
             ResolvedNode::Interact { child, .. },
         ) => {
-            let child = Box::new(diff_resolve(resources, *new_child, *child));
+            if compare_interact(
+                hovered,
+                &Some(InteractNode {
+                    callback: callback.clone(),
+                    id,
+                }),
+            ) {
+                try_set_callback(hovered, &callback);
+            }
+
+            if compare_interact(
+                pressed,
+                &Some(InteractNode {
+                    callback: callback.clone(),
+                    id,
+                }),
+            ) {
+                try_set_callback(pressed, &callback);
+            }
+
+            if compare_interact(
+                focused,
+                &Some(InteractNode {
+                    callback: callback.clone(),
+                    id,
+                }),
+            ) {
+                try_set_callback(focused, &callback);
+            }
+
+            let child = Box::new(diff_resolve(
+                resources, *new_child, *child, cull, hovered, pressed, focused,
+            ));
             Ok(Some(ResolvedNode::Interact {
                 rect: crate::Rect::new(Default::default(), child.size()),
                 child,
@@ -356,21 +439,31 @@ fn diff_resolve(resources: &mut Resources, new: Node, old: ResolvedNode) -> Reso
                 layout,
                 children: new_children,
             },
-            ResolvedNode::Layout { mut children, .. },
+            ResolvedNode::Layout {
+                mut children, rect, ..
+            },
         ) => {
-            if children.len() < new_children.len() {
-                children.append(&mut vec![
+            if !cull.intersects(&rect) {
+                return ResolvedNode::Null;
+            }
+
+            match children.len().cmp(&new_children.len()) {
+                Ordering::Less => children.append(&mut vec![
                     ResolvedNode::Null;
                     new_children.len() - children.len()
-                ]);
-            } else {
-                children.truncate(new_children.len());
+                ]),
+                Ordering::Greater => children.truncate(new_children.len()),
+                _ => {}
             }
 
             let children = new_children
                 .into_iter()
                 .zip(children.into_iter())
-                .map(|(new_child, old_child)| diff_resolve(resources, new_child, old_child))
+                .map(|(new_child, old_child)| {
+                    diff_resolve(
+                        resources, new_child, old_child, cull, hovered, pressed, focused,
+                    )
+                })
                 .collect::<Vec<_>>();
 
             let size = layout.size(

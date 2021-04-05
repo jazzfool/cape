@@ -1,4 +1,4 @@
-use crate::{deco, stack, Callback};
+use crate::{deco, Callback, Stack};
 use cape::node::IntoNode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

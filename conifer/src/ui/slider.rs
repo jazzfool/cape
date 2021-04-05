@@ -1,34 +1,24 @@
-use crate::{stack, LayoutBuilder, StackItem};
-use cape::node::{interact, rectangle, IntoNode, Node, Paint};
-use cape::state::Accessor;
-use cape::{point2, rgb, size2, Size2};
+use crate::{Callback, LayoutBuilder, Stack, StackItem};
+use cape::{
+    cx::{Cx, Handle, State},
+    node::{interact, rectangle, IntoNode, Node, Paint},
+    point2, rgb, size2, Size2,
+};
 
-pub struct SliderBuilder {
+pub struct Slider<'a> {
+    cx: &'a mut Cx,
     value: f32,
     range: std::ops::Range<f32>,
     style: SliderStyle,
     disabled: bool,
     width: Option<f32>,
-    on_change: Option<Box<dyn Fn(f32)>>,
+    on_change: Callback<f32>,
 }
 
-impl Default for SliderBuilder {
-    fn default() -> Self {
-        SliderBuilder {
-            value: 0.,
-            range: 0.0..1.0,
-            style: SliderStyle::default_dark(),
-            disabled: false,
-            width: None,
-            on_change: None,
-        }
-    }
-}
-
-impl IntoNode for SliderBuilder {
+impl<'a> IntoNode for Slider<'a> {
     #[cape::ui]
     fn into_node(self) -> Node {
-        stack()
+        Stack::new()
             .width(self.width)
             .height(self.style.slider_size.height)
             .child_item(
@@ -55,7 +45,7 @@ impl IntoNode for SliderBuilder {
                         self.style.slider_border_width,
                         self.style.slider_border,
                     ),
-                    move |_| println!("slider"),
+                    move |_, _| println!("slider"),
                     false,
                 ),
                 StackItem {
@@ -72,9 +62,21 @@ impl IntoNode for SliderBuilder {
     }
 }
 
-impl SliderBuilder {
-    pub fn value(mut self, value: f32) -> Self {
-        self.value = value;
+impl<'a> Slider<'a> {
+    pub fn new(cx: &'a mut Cx) -> Self {
+        Slider {
+            cx,
+            value: 0.,
+            range: 0.0..1.0,
+            style: SliderStyle::default_dark(),
+            disabled: false,
+            width: None,
+            on_change: Default::default(),
+        }
+    }
+
+    pub fn value(mut self, value: impl FnOnce(&mut Cx) -> f32) -> Self {
+        self.value = value(self.cx);
         self
     }
 
@@ -98,13 +100,14 @@ impl SliderBuilder {
         self
     }
 
-    pub fn on_change(mut self, on_change: impl Fn(f32) + 'static) -> Self {
-        self.on_change = Some(Box::new(on_change));
+    pub fn on_change(mut self, on_change: impl Into<Callback<f32>>) -> Self {
+        self.on_change = on_change.into();
         self
     }
 
-    pub fn state(self, state: impl Accessor<f32>) -> Self {
-        self.value(state.get()).on_change(move |val| state.set(val))
+    pub fn state(self, state: Handle<f32, State>) -> Self {
+        self.value(|cx| *cx.at(state))
+            .on_change(move |cx: &mut Cx, val: &f32| *cx.at(state) = *val)
     }
 }
 
@@ -138,8 +141,4 @@ impl SliderStyle {
             slider_size: size2(10., 20.),
         }
     }
-}
-
-pub fn slider() -> SliderBuilder {
-    SliderBuilder::default()
 }

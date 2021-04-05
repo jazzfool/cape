@@ -1,4 +1,4 @@
-use crate::{id::Id, size2, Color, Error, Image, Point2, Rect, Size2};
+use crate::{call, cx::Cx, id::Id, size2, Color, Error, Image, Point2, Rect, Size2};
 use fxhash::FxHashMap;
 use ordered_float::OrderedFloat;
 use skulpin::skia_safe as sk;
@@ -43,13 +43,13 @@ pub enum Node {
     Null,
     Interact {
         child: Box<Node>,
-        callback: Rc<dyn Fn(&Interaction)>,
+        callback: Rc<dyn Fn(&mut Cx, &Interaction)>,
         id: Id,
         passthrough: bool,
     },
     Capture {
         child: Box<Node>,
-        callback: Rc<dyn Fn(&ResolvedNode)>,
+        callback: Rc<dyn Fn(&mut Cx, &ResolvedNode)>,
     },
     Layout {
         layout: Rc<dyn Layout>,
@@ -70,7 +70,7 @@ pub enum Node {
     },
     Draw {
         size: Size2,
-        draw_fn: Rc<dyn Fn(Rect, &mut sk::Canvas)>,
+        draw_fn: Rc<dyn Fn(Rect, &mut Cx, &mut sk::Canvas)>,
     },
     Resolved(ResolvedNode),
 }
@@ -79,7 +79,7 @@ impl Node {
     /// Returns the `ResolvedNode` version of this node tree.
     pub fn resolve(&self, resources: &mut Resources) -> Result<Option<ResolvedNode>, Error> {
         match self {
-            Node::Null => Ok(None),
+            Node::Null => Ok(Some(ResolvedNode::Null)),
             Node::Interact {
                 child,
                 callback,
@@ -135,7 +135,11 @@ impl Node {
                 let fnt = resources
                     .font_cache
                     .entry((font.clone(), OrderedFloat(size)))
-                    .or_insert_with(|| Rc::new(sk::Font::new(&font_data.sk, size)))
+                    .or_insert_with(|| {
+                        let mut font = sk::Font::new(&font_data.sk, size);
+                        font.set_hinting(sk::FontHinting::Normal).set_subpixel(true);
+                        Rc::new(font)
+                    })
                     .clone();
 
                 let (blob, bounds) = if !text.is_empty() {
@@ -252,15 +256,15 @@ pub fn null() -> Node {
 #[track_caller]
 pub fn interact(
     child: impl IntoNode,
-    callback: impl Fn(&Interaction) + 'static,
+    callback: impl Fn(&mut Cx, &Interaction) + 'static,
     passthrough: bool,
 ) -> Node {
-    Node::Interact {
+    call(move || Node::Interact {
         child: Box::new(child.into_node()),
         callback: Rc::new(callback),
         id: Id::current(),
         passthrough,
-    }
+    })
 }
 
 pub fn text(text: impl Into<String>) -> Node {
@@ -302,7 +306,7 @@ pub fn rectangle(
     }
 }
 
-pub fn draw(size: Size2, draw_fn: impl Fn(Rect, &mut sk::Canvas) + 'static) -> Node {
+pub fn draw(size: Size2, draw_fn: impl Fn(Rect, &mut Cx, &mut sk::Canvas) + 'static) -> Node {
     Node::Draw {
         size,
         draw_fn: Rc::new(draw_fn),
@@ -327,6 +331,15 @@ pub enum Interaction {
         button: MouseButton,
         pos: Point2,
         modifiers: winit::event::ModifiersState,
+    },
+    CursorEnter {
+        pos: Point2,
+    },
+    CursorExit {
+        pos: Point2,
+    },
+    CursorMove {
+        pos: Point2,
     },
     GainFocus,
     LoseFocus,
@@ -369,14 +382,14 @@ pub enum ResolvedNode {
     Null,
     Interact {
         child: Box<ResolvedNode>,
-        callback: Rc<dyn Fn(&Interaction)>,
+        callback: Rc<dyn Fn(&mut Cx, &Interaction)>,
         rect: Rect,
         id: Id,
         passthrough: bool,
     },
     Capture {
         child: Box<ResolvedNode>,
-        callback: Rc<dyn Fn(&ResolvedNode)>,
+        callback: Rc<dyn Fn(&mut Cx, &ResolvedNode)>,
         rect: Rect,
     },
     Layout {
@@ -403,7 +416,7 @@ pub enum ResolvedNode {
     },
     Draw {
         rect: Rect,
-        draw_fn: Rc<dyn Fn(Rect, &mut sk::Canvas)>,
+        draw_fn: Rc<dyn Fn(Rect, &mut Cx, &mut sk::Canvas)>,
     },
 }
 
@@ -499,13 +512,13 @@ impl ResolvedNode {
         matches!(self, ResolvedNode::Interact { .. })
     }
 
-    pub fn invoke_captures(&self) {
+    pub fn invoke_captures(&self, cx: &mut Cx) {
         if let ResolvedNode::Capture { callback, .. } = self {
-            callback(self);
+            callback(cx, self);
         }
 
         for child in self.children() {
-            child.invoke_captures();
+            child.invoke_captures(cx);
         }
     }
 

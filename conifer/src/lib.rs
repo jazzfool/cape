@@ -1,14 +1,12 @@
+pub mod dark;
 pub mod deco;
 mod ui;
-
-#[cfg(feature = "kits")]
-pub mod kits;
 
 pub use ui::*;
 
 pub enum Callback<T> {
     None,
-    Func(std::rc::Rc<dyn Fn(&T)>),
+    Func(std::rc::Rc<dyn Fn(&mut cape::cx::Cx, &T)>),
 }
 
 impl<T> Default for Callback<T> {
@@ -17,7 +15,13 @@ impl<T> Default for Callback<T> {
     }
 }
 
-impl<T, F: Fn(&T) + 'static> From<F> for Callback<T> {
+impl<T> Callback<T> {
+    pub fn new(f: impl Fn(&mut cape::cx::Cx, &T) + 'static) -> Self {
+        Callback::from(f)
+    }
+}
+
+impl<T, F: Fn(&mut cape::cx::Cx, &T) + 'static> From<F> for Callback<T> {
     fn from(f: F) -> Self {
         Callback::Func(std::rc::Rc::new(f))
     }
@@ -28,9 +32,9 @@ impl<T> Callback<T> {
         std::mem::replace(self, Callback::None)
     }
 
-    pub fn call(&self, arg: &T) {
+    pub fn call(&self, cx: &mut cape::cx::Cx, arg: &T) {
         if let Callback::Func(f) = self {
-            f(arg);
+            f(cx, arg);
         }
     }
 }

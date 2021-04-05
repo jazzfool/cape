@@ -1,77 +1,60 @@
-use std::rc::Rc;
-
 use cape::{
     backend::skulpin::{Error, Window, WindowInfo},
-    node::{
-        iff, interact, rectangle, styled_text, FontProperties, Interaction, IntoNode, KeyCode,
-        Node, Paint, ResolvedNode, Resources,
-    },
-    point2, rgb, rgba, size2,
-    state::{
-        on_lifecycle, use_cache, use_event, use_state, use_static, Accessor, EventListener,
-        Lifecycle,
-    },
-    ui,
+    cx::Cx,
+    node::{FontProperties, IntoNode, Resources},
+    rgba, ui, Sides2,
 };
 
-use conifer::{
-    button, column, combo_box, container, deco::Decorated, row, stack, Align, Apply, ColumnItem,
-    LayoutBuilder, RowItem, StackItem,
-};
-
-use conifer::kits::air;
+use conifer::{dark::button, Apply, Button, Callback, Column, Container, LayoutBuilder, Row};
 
 #[ui]
-fn test() -> impl IntoNode {
-    let hovered = use_state(|| false);
+fn counter(cx: &mut Cx) -> impl IntoNode {
+    let count = cx.state(|| 0);
 
-    column()
-        .child(interact(
-            if hovered.get() { "Hey!" } else { "Sup" },
-            move |e| match e {
-                Interaction::MouseDown { .. } => hovered.set(true),
-                Interaction::MouseUp { .. } => hovered.set(false),
-                _ => {}
-            },
-            false,
-        ))
-        .children((0..10000).map(|i| format!("[{}]", i)).collect())
+    Container::new()
+        .margin(Sides2::new_all_same(10.))
+        .child(
+            Column::new()
+                .spacing(5.)
+                .child(format!("Count: {}", cx.at(count)))
+                .child(
+                    Row::new()
+                        .spacing(5.)
+                        .child(
+                            Button::new(cx)
+                                .child("Increment")
+                                .on_click(Callback::new(move |cx, _| *cx.at(count) += 1))
+                                .apply(button),
+                        )
+                        .child(
+                            Button::new(cx)
+                                .child("Decrement")
+                                .on_click(Callback::new(move |cx, _| *cx.at(count) -= 1))
+                                .apply(button),
+                        ),
+                ),
+        )
+        .into_node()
 }
 
 #[ui]
-fn window(info: &WindowInfo, resources: &mut Resources) -> Window {
+fn window(_info: &WindowInfo, cx: &mut Cx, resources: &mut Resources) -> Window {
     if !resources.has_font("sans-serif") {
         resources
             .load_font(
                 "sans-serif",
-                &[String::from("Inter")],
+                &[String::from("Segoe UI")],
                 &FontProperties::default(),
             )
             .unwrap();
     }
 
     Window {
-        body: stack()
-            .width(info.size.width)
-            .height(info.size.height)
-            .child_item(test(), StackItem::fill())
-            .into_node(),
-        background: air::BACKGROUND_COLOR,
+        body: counter(cx).into_node(),
+        background: rgba(30, 30, 30, 255),
     }
 }
 
 fn main() -> Result<(), Error> {
-    use_static(conifer::kits::Palette::default).with(|pal| {
-        pal.insert(
-            String::from("button-normal"),
-            cape::node::Paint::Solid(cape::rgba(40, 40, 40, 255)),
-        );
-
-        pal.insert(
-            String::from("button-border"),
-            cape::node::Paint::Solid(cape::rgba(100, 100, 100, 255)),
-        );
-    });
-
     cape::backend::skulpin::run(window)
 }

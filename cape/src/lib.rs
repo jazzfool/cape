@@ -1,9 +1,10 @@
 use thiserror::Error;
 
 pub mod backend;
+pub mod cx;
 pub mod id;
 pub mod node;
-pub mod state;
+//pub mod state;
 
 pub use cape_macro::{ui, unique_ui};
 pub use euclid::{point2, rect, size2};
@@ -29,6 +30,10 @@ pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
 
 pub fn rgb(r: u8, g: u8, b: u8) -> Color {
     rgba(r, g, b, 255)
+}
+
+pub fn rrr(rrr: u8) -> Color {
+    rgb(rrr, rrr, rrr)
 }
 
 pub const fn frgba(red: f32, green: f32, blue: f32, alpha: f32) -> Color {
