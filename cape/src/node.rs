@@ -49,7 +49,7 @@ pub enum Node {
     },
     Capture {
         child: Box<Node>,
-        callback: Rc<dyn Fn(&mut Cx, &ResolvedNode)>,
+        callback: Rc<dyn Fn(&mut Cx, &mut ResolvedNode)>,
     },
     Layout {
         layout: Rc<dyn Layout>,
@@ -389,7 +389,7 @@ pub enum ResolvedNode {
     },
     Capture {
         child: Box<ResolvedNode>,
-        callback: Rc<dyn Fn(&mut Cx, &ResolvedNode)>,
+        callback: Rc<dyn Fn(&mut Cx, &mut ResolvedNode)>,
         rect: Rect,
     },
     Layout {
@@ -508,16 +508,27 @@ impl ResolvedNode {
         }
     }
 
+    pub fn children_mut(&mut self) -> Vec<&mut ResolvedNode> {
+        match self {
+            ResolvedNode::Interact { child, .. } | ResolvedNode::Capture { child, .. } => {
+                vec![child.as_mut()]
+            }
+            ResolvedNode::Layout { children, .. } => children.iter_mut().collect(),
+            _ => vec![],
+        }
+    }
+
     pub fn is_interact(&self) -> bool {
         matches!(self, ResolvedNode::Interact { .. })
     }
 
-    pub fn invoke_captures(&self, cx: &mut Cx) {
+    pub fn invoke_captures(&mut self, cx: &mut Cx) {
         if let ResolvedNode::Capture { callback, .. } = self {
+            let callback = Rc::clone(callback);
             callback(cx, self);
         }
 
-        for child in self.children() {
+        for child in self.children_mut() {
             child.invoke_captures(cx);
         }
     }

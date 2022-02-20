@@ -3,8 +3,8 @@
 use crate::{Apply, Button, LayoutBuilder, Stack, StackItem};
 use cape::{
     frgb,
-    node::{iff, rectangle, IntoNode, Paint},
-    rrr, Color, Sides2,
+    node::{iff, rectangle, IntoNode, Node, Paint},
+    rgba, rrr, Color, Sides2,
 };
 
 const BLUE_ACCENT: Color = frgb(0.17647, 0.33333, 0.890196);
@@ -16,10 +16,18 @@ fn with_opacity(a: f32) -> impl Fn(Color) -> Color {
     }
 }
 
-pub fn button(btn: Button) -> Button {
+pub fn button(mut btn: Button) -> Button {
     let mut hovered = false;
     let mut pressed = false;
     let mut focused = false;
+
+    let disabled = btn.disabled;
+
+    if disabled {
+        if let Node::Text { fill, .. } = &mut btn.child {
+            *fill = Some(Paint::Solid(rgba(255, 255, 255, 120)));
+        }
+    }
 
     btn.hovered(&mut hovered)
         .pressed(&mut pressed)
@@ -28,7 +36,7 @@ pub fn button(btn: Button) -> Button {
         .background(
             Stack::new()
                 .child_item(
-                    iff(focused, || {
+                    iff(focused && !disabled, || {
                         rectangle(
                             Default::default(),
                             [7.; 4],
@@ -43,7 +51,9 @@ pub fn button(btn: Button) -> Button {
                     rectangle(
                         Default::default(),
                         [5.; 4],
-                        Paint::Solid(rrr(if pressed {
+                        Paint::Solid(rrr(if disabled {
+                            70
+                        } else if pressed {
                             60
                         } else if hovered {
                             80

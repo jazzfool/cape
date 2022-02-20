@@ -9,8 +9,9 @@ homepage = "http://github.com/jazzfool/cape/tree/master/cape"
 repository = "http://github.com/jazzfool/cape"
 
 [features]
-default = ["skulpin_backend"]
+default = ["skulpin_backend", "async"]
 skulpin_backend = ["skulpin"]
+async = ["tokio", "futures"]
 
 [dependencies]
 euclid = "0.22"
@@ -28,10 +29,9 @@ skulpin = { version = "0.11", default-features = false, features = [
 ], optional = true }
 winit = "0.24"
 cape-macro = { path = "../cape-macro" }
-
-fnv = "1.0"
 fxhash = "0.2"
-twox-hash = "1.6"
+tokio = { version = "1.4", optional = true }
+futures = { version = "0.3", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"

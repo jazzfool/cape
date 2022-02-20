@@ -279,7 +279,9 @@ pub trait LayoutBuilder: Sized {
     }
 
     #[track_caller]
-    fn children(mut self, nodes: Vec<impl IntoNode>) -> Self {
+    fn children<N: IntoNode>(mut self, nodes: impl IntoIterator<Item = N>) -> Self {
+        let nodes = nodes.into_iter().collect::<Vec<_>>();
+
         assert!(
             self.get_children().len() + nodes.len() <= Self::max_children(),
             "adding these children will exceed max layout children"
@@ -305,7 +307,12 @@ pub trait LayoutBuilder: Sized {
     }
 
     #[track_caller]
-    fn children_items(mut self, nodes: Vec<(impl IntoNode, impl Into<Self::Item>)>) -> Self {
+    fn children_items<A: IntoNode>(
+        mut self,
+        nodes: impl IntoIterator<Item = (A, Self::Item)>,
+    ) -> Self {
+        let nodes = nodes.into_iter().collect::<Vec<_>>();
+
         assert!(
             self.get_children().len() + nodes.len() <= Self::max_children(),
             "adding these children will exceed max layout children"

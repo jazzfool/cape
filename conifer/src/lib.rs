@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod dark;
 pub mod deco;
 mod ui;

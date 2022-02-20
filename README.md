@@ -11,6 +11,7 @@
 - Reactive & declarative
 - Caching helpers
 - Retained DOM-like backing tree (reconciliation)
+- No `unsafe` beyond rendering code
 
 ---
 
@@ -43,9 +44,14 @@ fn counter(cx: &mut Cx) -> impl IntoNode {
 
 ### What's missing
 
+- Multiple windows
 - Long list views (direct DOM mutation)
 - Z-order (implies a simple layer compositor)
 - Correct text input (IME)
-- Accessibility (First priority will be Microsoft UIAutomation)
+- Accessibility (first priority would be Microsoft UIAutomation)
 
 Not quite as sophisticated as Crochet, more based around empirical needs and wants.
+
+## Maintenance
+
+There's no need for new UI libraries in Rust, as such I may not be very active or responsive. Think of this more as a tech demo, i.e. don't use it for any project you care about.

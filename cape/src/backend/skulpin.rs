@@ -66,7 +66,7 @@ pub fn run(
         font_cache: Default::default(),
     };
 
-    let mut cx = cx::Cx::new();
+    let mut cx = cx::Cx::new(event_loop.create_proxy());
 
     let mut scale_factor = winit_window.scale_factor();
 
@@ -80,6 +80,8 @@ pub fn run(
     let mut hovered_node: Option<InteractNode> = None;
     let mut pressed_node: Option<InteractNode> = None;
     let mut focused_node: Option<InteractNode> = None;
+
+    let mut last_redraw = std::time::Instant::now();
 
     event_loop.run(move |event, _window_target, control_flow| {
         let window = skulpin::WinitWindow::new(&winit_window);
@@ -246,9 +248,13 @@ pub fn run(
                 modifiers = mods;
             }
             Event::MainEventsCleared => {
-                winit_window.request_redraw();
+                if (std::time::Instant::now() - last_redraw).as_millis() > 8 {
+                    // limit framerate to 120 fps
+                    winit_window.request_redraw();
+                }
             }
             Event::RedrawRequested(_window_id) => {
+                last_redraw = std::time::Instant::now();
                 renderer
                     .draw(&window, |canvas, _coordinate_system_helper| {
                         let w = f(&WindowInfo { size }, &mut cx, &mut resources);
@@ -271,6 +277,7 @@ pub fn run(
                         ));
 
                         curr_node.perform_layout();
+
                         render_tree(
                             &mut cx,
                             canvas,

@@ -1,10 +1,13 @@
 use crate::{call, id::Id, node::Resources};
+use futures::FutureExt;
 use fxhash::FxHashMap;
 use std::{
     any::{Any, TypeId},
     collections::hash_map::Entry,
+    future::Future,
     marker::PhantomData,
 };
+use winit::event_loop::EventLoopProxy;
 
 pub struct Handle<T, M: PartialEq + Copy>(TypeId, M, PhantomData<T>);
 
@@ -33,6 +36,8 @@ pub struct Cache(Id);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StaticState;
 
+pub type ExecHandle<T> = Option<tokio::task::JoinHandle<T>>;
+
 pub struct Cx {
     state: FxHashMap<(TypeId, Id), Box<dyn Any>>,
     cache: FxHashMap<(TypeId, Id), Cached>,
@@ -40,10 +45,11 @@ pub struct Cx {
     on_render: Option<FxHashMap<Id, Box<dyn FnMut(&mut Cx, &mut Resources)>>>,
     on_lifecycle: FxHashMap<Id, (bool, bool, Box<dyn FnMut(&mut Cx, Lifecycle, &Resources)>)>,
     events: FxHashMap<TypeId, Box<dyn Any>>,
+    proxy: EventLoopProxy<()>,
 }
 
-impl Default for Cx {
-    fn default() -> Self {
+impl Cx {
+    pub fn new(proxy: EventLoopProxy<()>) -> Self {
         Cx {
             state: Default::default(),
             cache: Default::default(),
@@ -51,13 +57,8 @@ impl Default for Cx {
             on_render: Some(Default::default()),
             on_lifecycle: Default::default(),
             events: Default::default(),
+            proxy,
         }
-    }
-}
-
-impl Cx {
-    pub fn new() -> Self {
-        Default::default()
     }
 
     #[track_caller]
@@ -194,6 +195,30 @@ impl Cx {
                 on_render(self, resources);
             }
         }
+    }
+
+    #[cfg(feature = "tokio")]
+    pub fn exec<Fu>(&mut self, f: Fu) -> tokio::task::JoinHandle<Fu::Output>
+    where
+        Fu: Future + Send + 'static,
+        Fu::Output: Send + 'static,
+    {
+        let proxy = self.proxy.clone();
+        tokio::spawn(async move {
+            let out = f.await;
+            // send a dummy event to wake up the event loop
+            proxy.send_event(()).expect("send event");
+            out
+        })
+    }
+
+    #[cfg(feature = "tokio")]
+    pub fn poll<T: 'static>(&mut self, f: Handle<ExecHandle<T>, State>) -> Option<T> {
+        self.at(f)
+            .as_mut()
+            .and_then(|task| task.now_or_never())
+            .map(|x| x.ok())
+            .flatten()
     }
 }
 

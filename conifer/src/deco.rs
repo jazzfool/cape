@@ -58,25 +58,19 @@ impl cape::node::IntoNode for DecoratedNode {
         let padding = self.padding;
 
         crate::Stack::new()
-            .children_items(
-                self.stack
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, (node, item))| {
-                        if i == core {
-                            (
-                                crate::Container::new()
-                                    .margin(padding)
-                                    .child(node)
-                                    .into_node(),
-                                item,
-                            )
-                        } else {
-                            (node, item)
-                        }
-                    })
-                    .collect(),
-            )
+            .children_items(self.stack.into_iter().enumerate().map(|(i, (node, item))| {
+                if i == core {
+                    (
+                        crate::Container::new()
+                            .margin(padding)
+                            .child(node)
+                            .into_node(),
+                        item,
+                    )
+                } else {
+                    (node, item)
+                }
+            }))
             .into_node()
     }
 }

@@ -1,28 +1,11 @@
-use crate::{deco, Callback, Stack};
+use crate::Callback;
 use cape::node::IntoNode;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ComboBoxCentreState {
-    Normal,
-    Hovered,
-    Opened,
-    Disabled,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ComboBoxItemState {
-    Normal,
-    Hovered,
-}
 
 #[derive(Default)]
 pub struct ComboBox {
     pub values: Vec<String>,
     pub selected: usize,
     pub on_change: Callback<(String, usize)>,
-    pub centre_decorator: deco::DecoratorHook<ComboBoxCentreState>,
-    pub popup_decorator: deco::DecoratorHook<()>,
-    pub item_decorator: deco::DecoratorHook<ComboBoxItemState>,
 }
 
 impl IntoNode for ComboBox {
@@ -47,29 +30,4 @@ impl ComboBox {
         self.on_change = on_change.into();
         self
     }
-
-    pub fn centre_decorator(
-        mut self,
-        decorator: impl Into<deco::DecoratorHook<ComboBoxCentreState>>,
-    ) -> Self {
-        self.centre_decorator = decorator.into();
-        self
-    }
-
-    pub fn popup_decorator(mut self, decorator: impl Into<deco::DecoratorHook<()>>) -> Self {
-        self.popup_decorator = decorator.into();
-        self
-    }
-
-    pub fn item_decorator(
-        mut self,
-        decorator: impl Into<deco::DecoratorHook<ComboBoxItemState>>,
-    ) -> Self {
-        self.item_decorator = decorator.into();
-        self
-    }
-}
-
-pub fn combo_box() -> ComboBox {
-    ComboBox::default()
 }

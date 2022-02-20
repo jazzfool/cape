@@ -10,10 +10,13 @@ repository = "http://github.com/jazzfool/cape"
 
 [dependencies]
 enumflags2 = "0.7"
-derive_builder = "0.9"
 fxhash = "0.2"
 cape = { path = "../cape" }
 
 [[example]]
 name = "counter"
 required-features = ["cape/skulpin"]
+
+[dev-dependencies]
+tokio = { version = "1.4", features = ["time", "macros", "rt-multi-thread"] }
+futures = "0.3"

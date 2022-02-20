@@ -6,6 +6,9 @@ pub mod id;
 pub mod node;
 //pub mod state;
 
+#[cfg(feature = "tokio")]
+pub use tokio;
+
 pub use cape_macro::{ui, unique_ui};
 pub use euclid::{point2, rect, size2};
 pub use image::RgbaImage as Image;

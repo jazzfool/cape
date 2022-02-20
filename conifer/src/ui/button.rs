@@ -1,7 +1,7 @@
 use crate::{Callback, Container, LayoutBuilder, Stack, StackItem};
 use cape::{
     cx::{Cx, Handle, State},
-    node::{interact, Interaction, IntoNode, MouseButton, Node},
+    node::{interact, Interaction, IntoNode, KeyCode, MouseButton, Node},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -29,6 +29,7 @@ pub struct Button<'a> {
 impl<'a> IntoNode for Button<'a> {
     fn into_node(self) -> Node {
         let on_click = self.on_click;
+        let disabled = self.disabled;
 
         let hovered = self.hovered;
         let pressed = self.pressed;
@@ -42,12 +43,22 @@ impl<'a> IntoNode for Button<'a> {
                 Interaction::MouseDown {
                     button: MouseButton::Left,
                     ..
+                }
+                | Interaction::KeyDown {
+                    key_code: KeyCode::Return,
+                    ..
                 } => {
                     *cx.at(pressed) = true;
-                    on_click.call(cx, event);
+                    if !disabled {
+                        on_click.call(cx, event);
+                    }
                 }
                 Interaction::MouseUp {
                     button: MouseButton::Left,
+                    ..
+                }
+                | Interaction::KeyUp {
+                    key_code: KeyCode::Return,
                     ..
                 } => *cx.at(pressed) = false,
                 Interaction::CursorEnter { .. } => *cx.at(hovered) = true,
